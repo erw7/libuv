@@ -33,6 +33,8 @@
 #include "stream-inl.h"
 #include "req-inl.h"
 
+#include <psapi.h>
+
 #ifndef InterlockedOr
 # define InterlockedOr _InterlockedOr
 #endif
@@ -2232,20 +2234,12 @@ int uv_tty_reset_mode(void) {
  * 10 version 1511, build number 10.0.10586.
  */
 static void uv__determine_vterm_state(HANDLE handle) {
-  DWORD dwMode = 0;
-
-  if (!GetConsoleMode(handle, &dwMode)) {
+  uv_tty_type tty_type = uv_guess_tty(handle);
+  if (tty_type == UV_TTY_VTP || tty_type == UV_TTY_CONEMU) {
+    uv__vterm_state = UV_SUPPORTED;
+  } else {
     uv__vterm_state = UV_UNSUPPORTED;
-    return;
   }
-
-  dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-  if (!SetConsoleMode(handle, dwMode)) {
-    uv__vterm_state = UV_UNSUPPORTED;
-    return;
-  }
-
-  uv__vterm_state = UV_SUPPORTED;
 }
 
 static DWORD WINAPI uv__tty_console_resize_message_loop_thread(void* param) {
@@ -2298,4 +2292,93 @@ static void CALLBACK uv__tty_console_resize_event(HWINEVENTHOOK hWinEventHook,
     uv__tty_console_height = height;
     uv__signal_dispatch(SIGWINCH);
   }
+}
+
+uv_tty_type uv_guess_tty(uv_os_fd_t handle)
+{
+  char env_var[5];
+  DWORD dwMode = 0;
+  DWORD env_length;
+
+  if (handle == INVALID_HANDLE_VALUE || uv_guess_handle(handle) != UV_TTY) {
+    return UV_TTY_NONE;
+  }
+
+  env_length = GetEnvironmentVariableA("ConEmuANSI", env_var, sizeof(env_var));
+  if (env_length == 2 &&
+      !strncmp(env_var, "ON", 2)) {
+    HANDLE process_handle = GetCurrentProcess();
+
+    while(1) {
+      NTSTATUS status;
+      PROCESS_BASIC_INFORMATION pbi;
+      ULONG return_length;
+      char parent_file_name[MAX_PATH];
+      DWORD parent_file_name_length;
+      const char* conemu_file_names[] = { "\\conemu.exe", "\\conemu64.exe" };
+
+      status = pNtQueryInformationProcess(process_handle,
+                                          ProcessBasicInformation,
+                                          &pbi,
+                                          sizeof(pbi),
+                                          &return_length);
+      CloseHandle(process_handle);
+      if (!NT_SUCCESS(status)) {
+        break;
+      }
+
+      process_handle = OpenProcess(PROCESS_QUERY_INFORMATION,
+                                   FALSE,
+                                   pbi.InheritedFromUniqueProcessId);
+      if (!process_handle) {
+        break;
+      }
+
+      parent_file_name_length =
+        GetProcessImageFileNameA(process_handle,
+                                 parent_file_name,
+                                 sizeof(parent_file_name));
+      if (!parent_file_name_length) {
+        break;
+      }
+
+      for (int i = 0; i < sizeof(conemu_file_names) / sizeof(char*); i++) {
+        size_t conemu_file_name_length = strlen(conemu_file_names[i]);
+        char* parent_file_name_last =
+          parent_file_name + parent_file_name_length - 1;
+        const char* conemu_file_name_last =
+          conemu_file_names[i] + conemu_file_name_length - 1;
+        if (parent_file_name_length < conemu_file_name_length) {
+          break;
+        }
+        while(1) {
+          *parent_file_name_last =
+            *parent_file_name_last >= 'A' && *parent_file_name_last <= 'Z' ?
+            *parent_file_name_last + 32 : *parent_file_name_last;
+          if (*conemu_file_name_last == *parent_file_name_last) {
+            if (conemu_file_names[i] == conemu_file_name_last) {
+              return UV_TTY_CONEMU;
+            } else {
+              parent_file_name_last--;
+              conemu_file_name_last--;
+              continue;
+            }
+          } else {
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  if (!GetConsoleMode(handle, &dwMode)) {
+    return UV_TTY_NONE;
+  }
+
+  dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+  if (!SetConsoleMode(handle, dwMode)) {
+    return UV_TTY_VTP;
+  }
+
+  return UV_TTY_LEGACY;
 }
