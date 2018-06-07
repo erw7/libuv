@@ -674,3 +674,10 @@ typedef struct {
 #define UV_FS_O_NONBLOCK     0
 #define UV_FS_O_SYMLINK      0
 #define UV_FS_O_SYNC         0x08000000 /* FILE_FLAG_WRITE_THROUGH */
+
+#define UV_TTY_NONE          0
+#define UV_TTY_VTP           0x02
+#define UV_TTY_LEGACY        0x04
+#define UV_TTY_CONEMU        0x08
+
+UV_EXTERN int uv_guess_tty(uv_file fd);
