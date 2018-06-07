@@ -675,3 +675,12 @@ RB_HEAD(uv_timer_tree_s, uv_timer_s);
 #define UV_FS_O_NONBLOCK     0
 #define UV_FS_O_SYMLINK      0
 #define UV_FS_O_SYNC         0x08000000 /* FILE_FLAG_WRITE_THROUGH */
+
+typedef enum {
+  UV_TTY_NONE,
+  UV_TTY_VTP,
+  UV_TTY_CONEMU,
+  UV_TTY_LEGACY
+} uv_tty_type;
+
+UV_EXTERN uv_tty_type uv_guess_tty(uv_file fd);
