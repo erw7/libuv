@@ -2417,6 +2417,7 @@ static void CALLBACK uv__tty_console_resize_event(HWINEVENTHOOK hWinEventHook,
 
 uv_tty_type uv_guess_tty(uv_file fd) {
   HANDLE handle = _get_osfhandle(fd);
+  uv__once_init();
   if (uv_guess_handle(fd) != UV_TTY) {
     return UV_TTY_NONE;
   }
