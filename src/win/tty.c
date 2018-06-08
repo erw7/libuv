@@ -23,6 +23,7 @@
 #include <io.h>
 #include <string.h>
 #include <stdlib.h>
+#include <wchar.h>
 
 #if defined(_MSC_VER) && _MSC_VER < 1600
 # include "stdint-msvc2008.h"
@@ -2279,9 +2280,9 @@ static uv_tty_type uv__guess_tty(HANDLE handle)
       NTSTATUS status;
       PROCESS_BASIC_INFORMATION pbi;
       ULONG return_length;
-      char parent_file_name[MAX_PATH];
+      WCHAR parent_file_name[MAX_PATH];
       DWORD parent_file_name_length;
-      const char* conemu_file_names[] = { "\\conemu.exe", "\\conemu64.exe" };
+      WCHAR* conemu_file_names[] = { L"\\ConEmu.exe", L"\\ConEmu64.exe" };
       unsigned int i;
 
       status = pNtQueryInformationProcess(process_handle,
@@ -2302,37 +2303,25 @@ static uv_tty_type uv__guess_tty(HANDLE handle)
       }
 
       parent_file_name_length =
-        GetProcessImageFileNameA(process_handle,
+        GetProcessImageFileNameW(process_handle,
                                  parent_file_name,
                                  sizeof(parent_file_name));
       if (!parent_file_name_length) {
         break;
       }
 
-      for (i = 0; i < sizeof(conemu_file_names) / sizeof(char*); i++) {
-        size_t conemu_file_name_length = strlen(conemu_file_names[i]);
-        char* parent_file_name_last =
-          parent_file_name + parent_file_name_length - 1;
-        const char* conemu_file_name_last =
-          conemu_file_names[i] + conemu_file_name_length - 1;
+      for (i = 0; i < sizeof(conemu_file_names) / sizeof(WCHAR*); i++) {
+        size_t conemu_file_name_length = wcslen(conemu_file_names[i]);
+        WCHAR* comp_position;
         if (parent_file_name_length < conemu_file_name_length) {
-          break;
+          continue;
         }
-        while(1) {
-          *parent_file_name_last =
-            *parent_file_name_last >= 'A' && *parent_file_name_last <= 'Z' ?
-            *parent_file_name_last + 'a' - 'A' : *parent_file_name_last;
-          if (*conemu_file_name_last == *parent_file_name_last) {
-            if (conemu_file_names[i] == conemu_file_name_last) {
-              return UV_TTY_CONEMU;
-            } else {
-              parent_file_name_last--;
-              conemu_file_name_last--;
-              continue;
-            }
-          } else {
-            break;
-          }
+        comp_position = parent_file_name + parent_file_name_length
+          - conemu_file_name_length;
+        if (!wcsncmp(comp_position,
+                     conemu_file_names[i],
+                     conemu_file_name_length)) {
+          return UV_TTY_CONEMU;
         }
       }
     }
