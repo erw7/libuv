@@ -2262,14 +2262,15 @@ int uv_tty_reset_mode(void) {
   return 0;
 }
 
-static uv_tty_type uv__guess_tty(HANDLE handle)
+static int uv__guess_tty(HANDLE handle)
 {
   char env_var[5];
   DWORD dwMode = 0;
   DWORD env_length;
+  int result = UV_TTY_NONE;
 
-  if (handle == INVALID_HANDLE_VALUE) {
-    return UV_TTY_NONE;
+  if (handle == INVALID_HANDLE_VALUE || !GetConsoleMode(handle, &dwMode)) {
+    return result;
   }
 
   env_length = GetEnvironmentVariableA("ConEmuANSI", env_var, sizeof(env_var));
@@ -2321,22 +2322,22 @@ static uv_tty_type uv__guess_tty(HANDLE handle)
         if (!wcsncmp(comp_position,
                      conemu_file_names[i],
                      conemu_file_name_length)) {
-          return UV_TTY_CONEMU;
+          result |= UV_TTY_CONEMU;
+          break;
         }
+      }
+      if (result & UV_TTY_CONEMU) {
+        break;
       }
     }
   }
 
-  if (!GetConsoleMode(handle, &dwMode)) {
-    return UV_TTY_NONE;
-  }
-
   dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
   if (!SetConsoleMode(handle, dwMode)) {
-    return UV_TTY_LEGACY;
+    return result |= UV_TTY_LEGACY;
   }
 
-  return UV_TTY_VTP;
+  return result |= UV_TTY_VTP;
 }
 
 /* Determine whether or not this version of windows supports
@@ -2344,8 +2345,8 @@ static uv_tty_type uv__guess_tty(HANDLE handle)
  * 10 version 1511, build number 10.0.10586.
  */
 static void uv__determine_vterm_state(HANDLE handle) {
-  uv_tty_type tty_type = uv__guess_tty(handle);
-  if (tty_type == UV_TTY_VTP || tty_type == UV_TTY_CONEMU) {
+  int tty_type = uv__guess_tty(handle);
+  if (tty_type & UV_TTY_VTP || tty_type & UV_TTY_CONEMU) {
     uv__vterm_state = UV_SUPPORTED;
   } else {
     uv__vterm_state = UV_UNSUPPORTED;
@@ -2404,7 +2405,7 @@ static void CALLBACK uv__tty_console_resize_event(HWINEVENTHOOK hWinEventHook,
   }
 }
 
-uv_tty_type uv_guess_tty(uv_file fd) {
+int uv_guess_tty(uv_file fd) {
   HANDLE handle = _get_osfhandle(fd);
   uv__once_init();
   if (uv_guess_handle(fd) != UV_TTY) {
