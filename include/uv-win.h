@@ -648,3 +648,10 @@ RB_HEAD(uv_timer_tree_s, uv_timer_s);
 #ifndef X_OK
 #define X_OK 1
 #endif
+
+#define UV_TTY_NONE          0
+#define UV_TTY_VTP           0x02
+#define UV_TTY_LEGACY        0x04
+#define UV_TTY_CONEMU        0x08
+
+UV_EXTERN int uv_guess_tty(uv_file fd);
