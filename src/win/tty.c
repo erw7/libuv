@@ -47,6 +47,7 @@
 #define ANSI_IN_ARG           0x20
 #define ANSI_IN_STRING        0x40
 #define ANSI_BACKSLASH_SEEN   0x80
+#define ANSI_EXTENSION        0x100
 
 #define MAX_INPUT_BUFFER_LENGTH 8192
 #define MAX_CONSOLE_CHAR 8192
@@ -1822,7 +1823,9 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
 
       } else if (ansi_parser_state & ANSI_CSI) {
         if (!(ansi_parser_state & ANSI_IGNORE)) {
-          if (utf8_codepoint >= '0' && utf8_codepoint <= '9') {
+          /* SP Ps is invalid */
+          if (utf8_codepoint >= '0' && utf8_codepoint <= '9' &&
+              prev_utf8_codepoint != ' ') {
             /* Parsing a numerical argument */
 
             if (!(ansi_parser_state & ANSI_IN_ARG)) {
@@ -1857,7 +1860,8 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
                continue;
             }
 
-          } else if (utf8_codepoint == ';') {
+          /* SP ; is invalid */
+          } else if (utf8_codepoint == ';' && prev_utf8_codepoint != ' ') {
             /* Check for this is after space */
             if (prev_utf8_codepoint == ' ') {
               ansi_parser_state |= ANSI_IGNORE;
@@ -1887,15 +1891,13 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
             /* Ignores '?' if it is the first character after CSI */
             /* This is an extension character from the VT100 codeset */
             /* that is supported and used by most ANSI terminals today. */
+            ansi_parser_state |= ANSI_EXTENSION;
             continue;
 
-          } else if (utf8_codepoint == ' ' && (prev_utf8_codepoint == '[' ||
-                     (handle->tty.wr.ansi_csi_argc == 1 &&
-                      ansi_parser_state & ANSI_IN_ARG))) {
-            /* Ignores SP if it is the first character after CSI or first */
-            /* character after first argument. */
-            /* This has the possibility of set cursor style(CSI Ps SP q or */
-            /* CSI SP q). */
+          /* SP SP is invalid */
+          } else if (utf8_codepoint == ' ' && prev_utf8_codepoint != ' ') {
+            /* Ignores SP. This has the possibility of set cursor style */
+            /* (CSI Ps SP q or CSI SP q). */
 
             /* Denotes the end of an argument. */
             if (ansi_parser_state & ANSI_IN_ARG) {
@@ -1903,12 +1905,13 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
             }
             continue;
 
-          } else if (utf8_codepoint >= '@' && utf8_codepoint <= '~' &&
-                     (handle->tty.wr.ansi_csi_argc > 0 || utf8_codepoint != '[')) {
+          } else if (utf8_codepoint >= '@' && utf8_codepoint <= '~') {
             int x, y, d;
 
             /* Command byte */
-            if (prev_utf8_codepoint != ' ') {
+            if (prev_utf8_codepoint != ' ' &&
+                !(ansi_parser_state & ANSI_EXTENSION)) {
+              /* Not Dec/xterm extension */
               switch (utf8_codepoint) {
                 case 'A':
                   /* cursor up */
@@ -2007,6 +2010,11 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
                   uv_tty_restore_state(handle, 0, error);
                   break;
 
+              }
+            } else if (prev_utf8_codepoint != ' ' &&
+                       ansi_parser_state & ANSI_EXTENSION) {
+              /* DEC/xterm extension */
+              switch (utf8_codepoint) {
                 case 'l':
                   /* Hide the cursor */
                   if (handle->tty.wr.ansi_csi_argc == 1 &&
@@ -2026,7 +2034,7 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
                   break;
 
               }
-            } else if (utf8_codepoint == 'q') {
+            } else if (prev_utf8_codepoint == ' ' && utf8_codepoint == 'q') {
               /* Change the cursor shape */
               d = handle->tty.wr.ansi_csi_argc ? handle->tty.wr.ansi_csi_argv[0] : 0;
               if (d >= 0 && d <= 6) {
