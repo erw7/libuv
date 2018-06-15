@@ -63,6 +63,9 @@
 #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
 #endif
 
+#define UNDERLINE_CURSOR      25
+#define BLOCK_CURSOR          100
+
 static void uv_tty_capture_initial_style(CONSOLE_SCREEN_BUFFER_INFO* info);
 static void uv_tty_update_virtual_window(CONSOLE_SCREEN_BUFFER_INFO* info);
 static int uv__cancel_read_console(uv_tty_t* handle);
@@ -1619,9 +1622,9 @@ static int uv_tty_set_cursor_shape(uv_tty_t* handle,
   }
 
   if (handle->tty.wr.ansi_csi_argv[0] <= 2) {
-    cursor_info.dwSize = 100;
+    cursor_info.dwSize = BLOCK_CURSOR;
   } else {
-    cursor_info.dwSize = 25;
+    cursor_info.dwSize = UNDERLINE_CURSOR;
   }
 
   if (!SetConsoleCursorInfo(handle->handle, &cursor_info)) {
