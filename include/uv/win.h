@@ -680,4 +680,11 @@ typedef struct {
 #define UV_TTY_LEGACY        0x04
 #define UV_TTY_CONEMU        0x08
 
-UV_EXTERN int uv_guess_tty(uv_file fd);
+/* Set uv__vterm_state reggardless of console type function */
+typedef enum {
+  UV_SUPPORTED,
+  UV_UNCHECKED,
+  UV_UNSUPPORTED
+} uv_vtermstate_t;
+
+UV_EXTERN void uv_set_vterm_state(uv_vtermstate_t state);

@@ -23,7 +23,6 @@
 #include <io.h>
 #include <string.h>
 #include <stdlib.h>
-#include <wchar.h>
 
 #if defined(_MSC_VER) && _MSC_VER < 1600
 # include "uv/stdint-msvc2008.h"
@@ -40,8 +39,6 @@
 #include "handle-inl.h"
 #include "stream-inl.h"
 #include "req-inl.h"
-
-#include <psapi.h>
 
 #ifndef InterlockedOr
 # define InterlockedOr _InterlockedOr
@@ -170,10 +167,8 @@ static char uv_tty_default_inverse = 0;
 static CONSOLE_CURSOR_INFO uv_tty_default_cursor_info;
 
 /* Determine whether or not ANSI support is enabled. */
-static uv__vtermstate_t uv__vterm_state = UV_UNCHECKED;
+static uv_vtermstate_t uv__vterm_state = UV_UNCHECKED;
 static void uv__determine_vterm_state(HANDLE handle);
-
-static int uv__tty_type = UV_TTY_NONE;
 
 static int uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_NONE;
 static int uv__tty_mouse_enc = UV_TTY_MOUSE_ENC_X10;
@@ -2686,110 +2681,28 @@ int uv_tty_reset_mode(void) {
   return 0;
 }
 
-static BOOL uv__is_end_with(WCHAR* path, WCHAR* file, size_t path_lenght) {
-  size_t file_length = wcslen(file);
-  WCHAR* comp_position;
-  if (path_lenght < file_length) {
-    return FALSE;
-  }
-  comp_position = path + path_lenght - file_length;
-  if (!wcsncmp(comp_position, file, file_length)) {
-    return TRUE;
-  }
-  return FALSE;
-}
-
-static int uv__guess_tty(HANDLE handle)
-{
-  DWORD dwMode = 0;
-  int result = UV_TTY_NONE;
-  HANDLE process_handle = GetCurrentProcess();
-
-  if (handle == INVALID_HANDLE_VALUE || !GetConsoleMode(handle, &dwMode)) {
-    return result;
-  }
-
-  while(1) {
-    NTSTATUS status;
-    PROCESS_BASIC_INFORMATION pbi;
-    ULONG return_length;
-    char env_var[5];
-    DWORD env_length;
-    WCHAR parent_file_name[MAX_PATH];
-    DWORD parent_file_name_length;
-    WCHAR* conemu_file_names[] = { L"\\ConEmu.exe", L"\\ConEmu64.exe" };
-    WCHAR* winpty_agent_file_name = L"\\winpty-agent.exe";
-    unsigned int i;
-
-    status = pNtQueryInformationProcess(process_handle,
-        ProcessBasicInformation,
-        &pbi,
-        sizeof(pbi),
-        &return_length);
-    CloseHandle(process_handle);
-    if (!NT_SUCCESS(status)) {
-      break;
-    }
-
-    process_handle = OpenProcess(PROCESS_QUERY_INFORMATION,
-        FALSE,
-        pbi.InheritedFromUniqueProcessId);
-    if (!process_handle) {
-      break;
-    }
-
-    parent_file_name_length =
-      GetProcessImageFileNameW(
-          process_handle, parent_file_name,
-          ARRAY_SIZE(parent_file_name));
-    if (!parent_file_name_length) {
-      break;
-    }
-
-    if (uv__is_end_with(parent_file_name,
-                        winpty_agent_file_name,
-                        parent_file_name_length)) {
-      return result | UV_TTY_LEGACY;
-    }
-
-    env_length = GetEnvironmentVariableA("ConEmuANSI", env_var, sizeof(env_var));
-    if (env_length == 2 && !strncmp(env_var, "ON", 2)) {
-      for (i = 0; i < sizeof(conemu_file_names) / sizeof(WCHAR*); i++) {
-        if (uv__is_end_with(parent_file_name,
-                            conemu_file_names[i],
-                            parent_file_name_length)) {
-          result |= UV_TTY_CONEMU;
-          break;
-        }
-      }
-      if (result & UV_TTY_CONEMU) {
-        break;
-      }
-    }
-  }
-
-  dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-  if (!SetConsoleMode(handle, dwMode)) {
-    return result |= UV_TTY_LEGACY;
-  }
-
-  return result |= UV_TTY_VTP;
-}
-
 /* Determine whether or not this version of windows supports
  * proper ANSI color codes. Should be supported as of windows
  * 10 version 1511, build number 10.0.10586.
  */
 static void uv__determine_vterm_state(HANDLE handle) {
-  int tty_type = uv__guess_tty(handle);
-  if (tty_type & UV_TTY_VTP || tty_type & UV_TTY_CONEMU) {
-    uv__vterm_state = UV_SUPPORTED;
-  } else {
+  DWORD dwMode = 0;
+
+  if (!GetConsoleMode(handle, &dwMode)) {
     uv__vterm_state = UV_UNSUPPORTED;
+    return;
   }
+
+  dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+  if (!SetConsoleMode(handle, dwMode)) {
+    uv__vterm_state = UV_UNSUPPORTED;
+    return;
+  }
+
+  uv__vterm_state = UV_SUPPORTED;
 }
 
-void uv__set_vterm_state(uv__vtermstate_t state) {
+void uv_set_vterm_state(uv_vtermstate_t state) {
   uv_sem_wait(&uv_tty_output_lock);
   uv__vterm_state = state;
   uv_sem_post(&uv_tty_output_lock);
@@ -2845,19 +2758,4 @@ static void CALLBACK uv__tty_console_resize_event(HWINEVENTHOOK hWinEventHook,
     uv__tty_console_height = height;
     uv__signal_dispatch(SIGWINCH);
   }
-}
-
-int uv_guess_tty(uv_file fd) {
-  HANDLE handle = _get_osfhandle(fd);
-  uv__once_init();
-  uv_sem_wait(&uv_tty_output_lock);
-  if (uv__tty_type != UV_TTY_NONE) {
-    uv_sem_post(&uv_tty_output_lock);
-    return uv__tty_type;
-  }
-  if (uv_guess_handle(fd) == UV_TTY) {
-    uv__tty_type = uv__guess_tty(handle);
-  }
-  uv_sem_post(&uv_tty_output_lock);
-  return uv__tty_type;
 }

@@ -28,8 +28,6 @@
 #include <errno.h>
 #include <string.h>
 
-#include "../src/win/internal.h"
-
 #define ESC "\033"
 #define CSI ESC "["
 #define ST ESC "\\"
@@ -348,7 +346,7 @@ static void initialize_tty(uv_tty_t* tty_out) {
   /* Make sure we have an FD that refers to a tty */
   HANDLE handle;
 
-  uv__set_vterm_state(UV_UNSUPPORTED);
+  uv_set_vterm_state(UV_UNSUPPORTED);
 
   handle = CreateConsoleScreenBuffer(GENERIC_READ | GENERIC_WRITE,
                                      FILE_SHARE_READ | FILE_SHARE_WRITE,
