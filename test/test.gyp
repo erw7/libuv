@@ -168,6 +168,7 @@
       'conditions': [
         [ 'OS=="win"', {
           'sources': [
+            'test-tty-escape-sequence-processing.c',
             'runner-win.c',
             'runner-win.h',
             '../src/win/snprintf.c',
