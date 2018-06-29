@@ -36,14 +36,18 @@
 struct screen {
   char *text;
   WORD *attributes;
+  int top;
   int width;
   int height;
   int length;
 };
 
-static void initialize_tty(uv_tty_t *tty_out) {
+static void initialize_tty(uv_tty_t *tty_out, struct screen *scr) {
   int r;
   int ttyout_fd;
+  CONSOLE_SCREEN_BUFFER_INFO info;
+
+  uv__set_vterm_state(UV_UNSUPPORTED);
 
   /* Make sure we have an FD that refers to a tty */
   HANDLE handle;
@@ -64,15 +68,37 @@ static void initialize_tty(uv_tty_t *tty_out) {
 
   r = uv_tty_init(uv_default_loop(), tty_out, ttyout_fd, 0);  /* Writable. */
   ASSERT(r == 0);
+
+  ASSERT(GetConsoleScreenBufferInfo(tty_out->handle, &info));
+  scr->text = NULL;
+  scr->attributes = NULL;
+  scr->top = info.srWindow.Top;
+  scr->width = info.dwSize.X;
+  scr->height = info.srWindow.Bottom - info.srWindow.Top + 1;
+  scr->length = scr->width * scr->height;
 }
 
-static COORD get_cursor_position(HANDLE handle) {
+static COORD get_cursor_position(uv_tty_t *tty_out) {
+  HANDLE handle = tty_out->handle;
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  COORD ret;
+  ASSERT(GetConsoleScreenBufferInfo(handle, &info));
+  ret.X = info.dwCursorPosition.X + 1;
+  ret.Y = info.dwCursorPosition.Y - info.srWindow.Top + 1;
+  return ret;
+}
+
+static void set_cursor_position(uv_tty_t *tty_out, COORD pos) {
+  HANDLE handle = tty_out->handle;
   CONSOLE_SCREEN_BUFFER_INFO info;
   ASSERT(GetConsoleScreenBufferInfo(handle, &info));
-  return info.dwCursorPosition;
+  pos.X -= 1;
+  pos.Y += info.srWindow.Top - 1;
+  ASSERT(SetConsoleCursorPosition(handle, pos));
 }
 
-static BOOL is_cursor_visible(HANDLE handle) {
+static BOOL is_cursor_visible(uv_tty_t *tty_out) {
+  HANDLE handle = tty_out->handle;
   CONSOLE_CURSOR_INFO info;
   ASSERT(GetConsoleCursorInfo(handle, &info));
   return info.bVisible;
@@ -169,137 +195,382 @@ static void compare_screen(struct screen *actual, struct screen *expect) {
   }
 }
 
-TEST_IMPL(tty_move_cursor) {
+
+TEST_IMPL(tty_cursor_up) {
   uv_tty_t tty_out;
   uv_loop_t* loop;
   CONSOLE_SCREEN_BUFFER_INFO info;
   COORD cursor_pos, cursor_pos_old;
   char buffer[1024];
-  int top, width, height;
-
-  uv__set_vterm_state(UV_UNSUPPORTED);
+  struct screen scr;
 
   loop = uv_default_loop();
 
-  initialize_tty(&tty_out);
+  initialize_tty(&tty_out, &scr);
 
-  ASSERT(GetConsoleScreenBufferInfo(tty_out.handle, &info));
-  width = info.dwSize.X;
-  height = info.srWindow.Bottom - info.srWindow.Top;
-  top = info.srWindow.Top;
-
-  /* Move the cursor to home */
-  snprintf(buffer, sizeof(buffer),"%sH", CSI);
-  write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(tty_out.handle);
-  ASSERT(0 == cursor_pos.X);
-  ASSERT(top == cursor_pos.Y);
-
-  /* Move the cursor to the middle of the screen */
-  snprintf(buffer, sizeof(buffer), "%s%d;%dH", CSI, height / 2, width / 2);
-  write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(tty_out.handle);
-  ASSERT((width / 2 - 1) == cursor_pos.X);
-  ASSERT(top + (height / 2 - 1) == cursor_pos.Y);
+  cursor_pos_old.X = scr.width / 2;
+  cursor_pos_old.Y = scr.height / 2;
+  set_cursor_position(&tty_out, cursor_pos_old);
 
   /* cursor up */
-  cursor_pos_old = cursor_pos;
   snprintf(buffer, sizeof(buffer), "%sA", CSI);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(tty_out.handle);
+  cursor_pos = get_cursor_position(&tty_out);
   ASSERT(cursor_pos_old.Y - 1 == cursor_pos.Y);
   ASSERT(cursor_pos_old.X == cursor_pos.X);
 
   /* cursor up nth times */
   cursor_pos_old = cursor_pos;
-  snprintf(buffer, sizeof(buffer), "%s%dA", CSI, height / 4);
+  snprintf(buffer, sizeof(buffer), "%s%dA", CSI, scr.height / 4);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(tty_out.handle);
-  ASSERT(cursor_pos_old.Y - height / 4 == cursor_pos.Y);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(cursor_pos_old.Y - scr.height / 4 == cursor_pos.Y);
   ASSERT(cursor_pos_old.X == cursor_pos.X);
 
+  /* cursor up from Window top does nothing */
+  cursor_pos_old.X = 1;
+  cursor_pos_old.Y = 1;
+  set_cursor_position(&tty_out, cursor_pos_old);
+  snprintf(buffer, sizeof(buffer), "%sA", CSI);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(cursor_pos_old.Y == cursor_pos.Y);
+  ASSERT(cursor_pos_old.X == cursor_pos.X);
+  ASSERT(GetConsoleScreenBufferInfo(tty_out.handle, &info));
+  ASSERT(info.srWindow.Top == scr.top);
+
+  uv_close((uv_handle_t*) &tty_out, NULL);
+
+  uv_run(loop, UV_RUN_DEFAULT);
+
+  MAKE_VALGRIND_HAPPY();
+  return 0;
+}
+
+
+TEST_IMPL(tty_cursor_down) {
+  uv_tty_t tty_out;
+  uv_loop_t* loop;
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  COORD cursor_pos, cursor_pos_old;
+  char buffer[1024];
+  struct screen scr;
+
+  loop = uv_default_loop();
+
+  initialize_tty(&tty_out, &scr);
+
+  cursor_pos_old.X = scr.width / 2;
+  cursor_pos_old.Y = scr.height / 2;
+  set_cursor_position(&tty_out, cursor_pos_old);
+
   /* cursor down */
-  cursor_pos_old = cursor_pos;
   snprintf(buffer, sizeof(buffer), "%sB", CSI);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(tty_out.handle);
+  cursor_pos = get_cursor_position(&tty_out);
   ASSERT(cursor_pos_old.Y + 1 == cursor_pos.Y);
   ASSERT(cursor_pos_old.X == cursor_pos.X);
 
   /* cursor down nth times */
   cursor_pos_old = cursor_pos;
-  snprintf(buffer, sizeof(buffer), "%s%dB", CSI, height / 4);
+  snprintf(buffer, sizeof(buffer), "%s%dB", CSI, scr.height / 4);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(tty_out.handle);
-  ASSERT(cursor_pos_old.Y + height / 4 == cursor_pos.Y);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(cursor_pos_old.Y + scr.height / 4 == cursor_pos.Y);
   ASSERT(cursor_pos_old.X == cursor_pos.X);
 
+  /* cursor down from bottom line does nothing */
+  cursor_pos_old.X = scr.width / 2;
+  cursor_pos_old.Y = scr.height;
+  set_cursor_position(&tty_out, cursor_pos_old);
+  snprintf(buffer, sizeof(buffer), "%sB", CSI);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(cursor_pos_old.Y == cursor_pos.Y);
+  ASSERT(cursor_pos_old.X == cursor_pos.X);
+  ASSERT(GetConsoleScreenBufferInfo(tty_out.handle, &info));
+  ASSERT(info.srWindow.Top == scr.top);
+
+  uv_close((uv_handle_t*) &tty_out, NULL);
+
+  uv_run(loop, UV_RUN_DEFAULT);
+
+  MAKE_VALGRIND_HAPPY();
+  return 0;
+}
+
+
+TEST_IMPL(tty_cursor_forward) {
+  uv_tty_t tty_out;
+  uv_loop_t* loop;
+  COORD cursor_pos, cursor_pos_old;
+  char buffer[1024];
+  struct screen scr;
+
+  loop = uv_default_loop();
+
+  initialize_tty(&tty_out, &scr);
+
+  cursor_pos_old.X = scr.width / 2;
+  cursor_pos_old.Y = scr.height / 2;
+  set_cursor_position(&tty_out, cursor_pos_old);
+
   /* cursor forward */
-  cursor_pos_old = cursor_pos;
   snprintf(buffer, sizeof(buffer), "%sC", CSI);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(tty_out.handle);
+  cursor_pos = get_cursor_position(&tty_out);
   ASSERT(cursor_pos_old.Y == cursor_pos.Y);
   ASSERT(cursor_pos_old.X + 1 == cursor_pos.X);
 
   /* cursor forward nth times */
   cursor_pos_old = cursor_pos;
-  snprintf(buffer, sizeof(buffer), "%s%dC", CSI, width / 4);
+  snprintf(buffer, sizeof(buffer), "%s%dC", CSI, scr.width / 4);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(tty_out.handle);
+  cursor_pos = get_cursor_position(&tty_out);
   ASSERT(cursor_pos_old.Y == cursor_pos.Y);
-  ASSERT(cursor_pos_old.X + width / 4 == cursor_pos.X);
+  ASSERT(cursor_pos_old.X + scr.width / 4 == cursor_pos.X);
+
+  /* cursor forward from end of line does nothing*/
+  cursor_pos_old.X = scr.width;
+  cursor_pos_old.Y = scr.height / 2;
+  set_cursor_position(&tty_out, cursor_pos_old);
+  snprintf(buffer, sizeof(buffer), "%sC", CSI);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(cursor_pos_old.Y == cursor_pos.Y);
+  ASSERT(cursor_pos_old.X == cursor_pos.X);
+
+  /* cursor forward from end of screen does nothing */
+  cursor_pos_old.X = scr.width;
+  cursor_pos_old.Y = scr.height;
+  set_cursor_position(&tty_out, cursor_pos_old);
+  snprintf(buffer, sizeof(buffer), "%sC", CSI);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(cursor_pos_old.Y == cursor_pos.Y);
+  ASSERT(cursor_pos_old.X == cursor_pos.X);
+
+  uv_close((uv_handle_t*) &tty_out, NULL);
+
+  uv_run(loop, UV_RUN_DEFAULT);
+
+  MAKE_VALGRIND_HAPPY();
+  return 0;
+}
+
+
+TEST_IMPL(tty_cursor_back) {
+  uv_tty_t tty_out;
+  uv_loop_t* loop;
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  COORD cursor_pos, cursor_pos_old;
+  char buffer[1024];
+  struct screen scr;
+
+  loop = uv_default_loop();
+
+  initialize_tty(&tty_out, &scr);
+
+  cursor_pos_old.X = scr.width / 2;
+  cursor_pos_old.Y = scr.height / 2;
+  set_cursor_position(&tty_out, cursor_pos_old);
 
   /* cursor back */
-  cursor_pos_old = cursor_pos;
   snprintf(buffer, sizeof(buffer), "%sD", CSI);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(tty_out.handle);
+  cursor_pos = get_cursor_position(&tty_out);
   ASSERT(cursor_pos_old.Y == cursor_pos.Y);
   ASSERT(cursor_pos_old.X - 1 == cursor_pos.X);
 
   /* cursor back nth times */
   cursor_pos_old = cursor_pos;
-  snprintf(buffer, sizeof(buffer), "%s%dD", CSI, width / 4);
+  snprintf(buffer, sizeof(buffer), "%s%dD", CSI, scr.width / 4);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(tty_out.handle);
+  cursor_pos = get_cursor_position(&tty_out);
   ASSERT(cursor_pos_old.Y == cursor_pos.Y);
-  ASSERT(cursor_pos_old.X - width / 4 == cursor_pos.X);
+  ASSERT(cursor_pos_old.X - scr.width / 4 == cursor_pos.X);
+
+  /* cursor back from beginning of line does nothing */
+  cursor_pos_old.X = 1;
+  cursor_pos_old.Y = scr.height / 2;
+  set_cursor_position(&tty_out, cursor_pos_old);
+  snprintf(buffer, sizeof(buffer), "%sD", CSI);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(cursor_pos_old.Y == cursor_pos.Y);
+  ASSERT(cursor_pos_old.X == cursor_pos.X);
+
+  /* cursor back from top of screen does nothing */
+  cursor_pos_old.X = 1;
+  cursor_pos_old.Y = 1;
+  set_cursor_position(&tty_out, cursor_pos_old);
+  snprintf(buffer, sizeof(buffer), "%sD", CSI);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(1 == cursor_pos.Y);
+  ASSERT(1 == cursor_pos.X);
+  ASSERT(GetConsoleScreenBufferInfo(tty_out.handle, &info));
+  ASSERT(info.srWindow.Top == scr.top);
+
+  uv_close((uv_handle_t*) &tty_out, NULL);
+
+  uv_run(loop, UV_RUN_DEFAULT);
+
+  MAKE_VALGRIND_HAPPY();
+  return 0;
+}
+
+
+TEST_IMPL(tty_cursor_next_line) {
+  uv_tty_t tty_out;
+  uv_loop_t* loop;
+  COORD cursor_pos, cursor_pos_old;
+  char buffer[1024];
+  struct screen scr;
+
+  uv__set_vterm_state(UV_UNSUPPORTED);
+
+  loop = uv_default_loop();
+
+  initialize_tty(&tty_out, &scr);
+
+  cursor_pos_old.X = scr.width / 2;
+  cursor_pos_old.Y = scr.height / 2;
+  set_cursor_position(&tty_out, cursor_pos_old);
 
   /* cursor next line */
-  cursor_pos_old = cursor_pos;
   snprintf(buffer, sizeof(buffer), "%sE", CSI);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(tty_out.handle);
+  cursor_pos = get_cursor_position(&tty_out);
   ASSERT(cursor_pos_old.Y + 1 == cursor_pos.Y);
-  ASSERT(0 == cursor_pos.X);
+  ASSERT(1 == cursor_pos.X);
 
   /* cursor next line nth times */
   cursor_pos_old = cursor_pos;
-  snprintf(buffer, sizeof(buffer), "%s%dC%s%dE",
-      CSI, width / 4, CSI, height / 4);
+  snprintf(buffer, sizeof(buffer), "%s%dE", CSI, scr.height / 4);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(tty_out.handle);
-  ASSERT(cursor_pos_old.Y + height / 4 == cursor_pos.Y);
-  ASSERT(0 == cursor_pos.X);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(cursor_pos_old.Y + scr.height / 4 == cursor_pos.Y);
+  ASSERT(1 == cursor_pos.X);
+
+  /* cursor next line from buttom row moves beginning of line */
+  cursor_pos_old.X = scr.width / 2;
+  cursor_pos_old.Y = scr.height;
+  set_cursor_position(&tty_out, cursor_pos_old);
+  snprintf(buffer, sizeof(buffer), "%sE", CSI);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(cursor_pos_old.Y == cursor_pos.Y);
+  ASSERT(1 == cursor_pos.X);
+
+  uv_close((uv_handle_t*) &tty_out, NULL);
+
+  uv_run(loop, UV_RUN_DEFAULT);
+
+  MAKE_VALGRIND_HAPPY();
+  return 0;
+}
+
+
+TEST_IMPL(tty_cursor_previous_line) {
+  uv_tty_t tty_out;
+  uv_loop_t* loop;
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  COORD cursor_pos, cursor_pos_old;
+  char buffer[1024];
+  struct screen scr;
+
+  uv__set_vterm_state(UV_UNSUPPORTED);
+
+  loop = uv_default_loop();
+
+  initialize_tty(&tty_out, &scr);
+
+  cursor_pos_old.X = scr.width / 2;
+  cursor_pos_old.Y = scr.height / 2;
+  set_cursor_position(&tty_out, cursor_pos_old);
 
   /* cursor previous line */
-  cursor_pos_old = cursor_pos;
-  snprintf(buffer, sizeof(buffer), "%s%dC%sF",
-      CSI, width / 4, CSI);
+  snprintf(buffer, sizeof(buffer), "%sF", CSI);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(tty_out.handle);
+  cursor_pos = get_cursor_position(&tty_out);
   ASSERT(cursor_pos_old.Y - 1 == cursor_pos.Y);
-  ASSERT(0 == cursor_pos.X);
+  ASSERT(1 == cursor_pos.X);
 
-  /* cursor next line nth times */
+  /* cursor previous line nth times */
   cursor_pos_old = cursor_pos;
-  snprintf(buffer, sizeof(buffer), "%s%dC%s%dF",
-      CSI, width / 4, CSI, height / 4);
+  snprintf(buffer, sizeof(buffer), "%s%dF", CSI, scr.height / 4);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(tty_out.handle);
-  ASSERT(cursor_pos_old.Y - height / 4 == cursor_pos.Y);
-  ASSERT(0 == cursor_pos.X);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(cursor_pos_old.Y - scr.height / 4 == cursor_pos.Y);
+  ASSERT(1 == cursor_pos.X);
+
+  /* cursor previous line from top of screen does nothing */
+  cursor_pos_old.X = 1;
+  cursor_pos_old.Y = 1;
+  set_cursor_position(&tty_out, cursor_pos_old);
+  snprintf(buffer, sizeof(buffer), "%sD", CSI);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(1 == cursor_pos.Y);
+  ASSERT(1 == cursor_pos.X);
+  ASSERT(GetConsoleScreenBufferInfo(tty_out.handle, &info));
+  ASSERT(info.srWindow.Top == scr.top);
+
+  uv_close((uv_handle_t*) &tty_out, NULL);
+
+  uv_run(loop, UV_RUN_DEFAULT);
+
+  MAKE_VALGRIND_HAPPY();
+  return 0;
+}
+
+
+TEST_IMPL(tty_cursor_move_absolute) {
+  uv_tty_t tty_out;
+  uv_loop_t* loop;
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  COORD cursor_pos;
+  char buffer[1024];
+  struct screen scr;
+
+  uv__set_vterm_state(UV_UNSUPPORTED);
+
+  loop = uv_default_loop();
+
+  initialize_tty(&tty_out, &scr);
+
+  /* Move the cursor to home */
+  snprintf(buffer, sizeof(buffer),"%sH", CSI);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(1 == cursor_pos.X);
+  ASSERT(1 == cursor_pos.Y);
+
+  /* Move the cursor to the middle of the screen */
+  snprintf(buffer, sizeof(buffer), "%s%d;%df",
+      CSI, scr.height / 2, scr.width / 2);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(scr.width / 2 == cursor_pos.X);
+  ASSERT(scr.height / 2 == cursor_pos.Y);
+
+  /* Moving out of screen will fit within screen */
+  snprintf(buffer, sizeof(buffer), "%s%d;%df",
+      CSI, scr.height / 2, scr.width + 1);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(scr.width == cursor_pos.X);
+  ASSERT(scr.height / 2 == cursor_pos.Y);
+
+  snprintf(buffer, sizeof(buffer), "%s%d;%df",
+      CSI, scr.height + 1, scr.width / 2);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(scr.width / 2 == cursor_pos.X);
+  ASSERT(scr.height == cursor_pos.Y);
+  ASSERT(GetConsoleScreenBufferInfo(tty_out.handle, &info));
+  ASSERT(info.srWindow.Top == scr.top);
 
   uv_close((uv_handle_t*) &tty_out, NULL);
 
@@ -314,27 +585,28 @@ TEST_IMPL(tty_hide_show_cursor) {
   uv_tty_t tty_out;
   uv_loop_t* loop;
   char buffer[1024];
+  struct screen scr;
 
   uv__set_vterm_state(UV_UNSUPPORTED);
 
   loop = uv_default_loop();
 
-  initialize_tty(&tty_out);
+  initialize_tty(&tty_out, &scr);
 
   /* Hide the cursor */
   snprintf(buffer, sizeof(buffer), "%s?25l", CSI);
   write_console(&tty_out, buffer);
-  ASSERT(!is_cursor_visible(tty_out.handle));
+  ASSERT(!is_cursor_visible(&tty_out));
 
   /* Show the cursor */
   snprintf(buffer, sizeof(buffer), "%s?25h", CSI);
   write_console(&tty_out, buffer);
-  ASSERT(is_cursor_visible(tty_out.handle));
+  ASSERT(is_cursor_visible(&tty_out));
 
   /* Invalid sequence */
   snprintf(buffer, sizeof(buffer), "%s??25l", CSI);
   write_console(&tty_out, buffer);
-  ASSERT(is_cursor_visible(tty_out.handle));
+  ASSERT(is_cursor_visible(&tty_out));
 
   uv_close((uv_handle_t*) &tty_out, NULL);
 
@@ -357,7 +629,7 @@ TEST_IMPL(tty_erase) {
 
   loop = uv_default_loop();
 
-  initialize_tty(&tty_out);
+  initialize_tty(&tty_out, &scr_expect);
 
   /* Erase to right */
   dir = 0;
@@ -421,7 +693,6 @@ TEST_IMPL(tty_erase) {
   setup_screen(&tty_out);
   capture_screen(&tty_out, &scr_expect);
   erase_line(&scr_expect, scr_expect.height / 2, scr_expect.width / 2, dir);
-
   snprintf(buffer, sizeof(buffer), "%s%d;%dH%sK",
       CSI, scr_expect.height / 2, scr_expect.width / 2, CSI);
   write_console(&tty_out, buffer);
