@@ -41,6 +41,31 @@ struct screen {
   int length;
 };
 
+static void initialize_tty(uv_tty_t *tty_out) {
+  int r;
+  int ttyout_fd;
+
+  /* Make sure we have an FD that refers to a tty */
+  HANDLE handle;
+
+  handle = CreateFileA("conout$",
+                       GENERIC_READ | GENERIC_WRITE,
+                       FILE_SHARE_READ | FILE_SHARE_WRITE,
+                       NULL,
+                       OPEN_EXISTING,
+                       FILE_ATTRIBUTE_NORMAL,
+                       NULL);
+  ASSERT(handle != INVALID_HANDLE_VALUE);
+  ttyout_fd = _open_osfhandle((intptr_t) handle, 0);
+
+  ASSERT(ttyout_fd >= 0);
+
+  ASSERT(UV_TTY == uv_guess_handle(ttyout_fd));
+
+  r = uv_tty_init(uv_default_loop(), tty_out, ttyout_fd, 0);  /* Writable. */
+  ASSERT(r == 0);
+}
+
 static COORD get_cursor_position(HANDLE handle) {
   CONSOLE_SCREEN_BUFFER_INFO info;
   ASSERT(GetConsoleScreenBufferInfo(handle, &info));
@@ -145,8 +170,6 @@ static void compare_screen(struct screen *actual, struct screen *expect) {
 }
 
 TEST_IMPL(tty_move_cursor) {
-  int r;
-  int ttyout_fd;
   uv_tty_t tty_out;
   uv_loop_t* loop;
   CONSOLE_SCREEN_BUFFER_INFO info;
@@ -154,31 +177,13 @@ TEST_IMPL(tty_move_cursor) {
   char buffer[1024];
   int top, width, height;
 
-  /* Make sure we have an FD that refers to a tty */
-  HANDLE handle;
-
   uv__set_vterm_state(UV_UNSUPPORTED);
 
   loop = uv_default_loop();
 
-  handle = CreateFileA("conout$",
-                       GENERIC_READ | GENERIC_WRITE,
-                       FILE_SHARE_READ | FILE_SHARE_WRITE,
-                       NULL,
-                       OPEN_EXISTING,
-                       FILE_ATTRIBUTE_NORMAL,
-                       NULL);
-  ASSERT(handle != INVALID_HANDLE_VALUE);
-  ttyout_fd = _open_osfhandle((intptr_t) handle, 0);
+  initialize_tty(&tty_out);
 
-  ASSERT(ttyout_fd >= 0);
-
-  ASSERT(UV_TTY == uv_guess_handle(ttyout_fd));
-
-  r = uv_tty_init(uv_default_loop(), &tty_out, ttyout_fd, 0);  /* Writable. */
-  ASSERT(r == 0);
-
-  ASSERT(GetConsoleScreenBufferInfo(handle, &info));
+  ASSERT(GetConsoleScreenBufferInfo(tty_out.handle, &info));
   width = info.dwSize.X;
   height = info.srWindow.Bottom - info.srWindow.Top;
   top = info.srWindow.Top;
@@ -186,14 +191,14 @@ TEST_IMPL(tty_move_cursor) {
   /* Move the cursor to home */
   snprintf(buffer, sizeof(buffer),"%sH", CSI);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(handle);
+  cursor_pos = get_cursor_position(tty_out.handle);
   ASSERT(0 == cursor_pos.X);
   ASSERT(top == cursor_pos.Y);
 
   /* Move the cursor to the middle of the screen */
   snprintf(buffer, sizeof(buffer), "%s%d;%dH", CSI, height / 2, width / 2);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(handle);
+  cursor_pos = get_cursor_position(tty_out.handle);
   ASSERT((width / 2 - 1) == cursor_pos.X);
   ASSERT(top + (height / 2 - 1) == cursor_pos.Y);
 
@@ -201,7 +206,7 @@ TEST_IMPL(tty_move_cursor) {
   cursor_pos_old = cursor_pos;
   snprintf(buffer, sizeof(buffer), "%sA", CSI);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(handle);
+  cursor_pos = get_cursor_position(tty_out.handle);
   ASSERT(cursor_pos_old.Y - 1 == cursor_pos.Y);
   ASSERT(cursor_pos_old.X == cursor_pos.X);
 
@@ -209,7 +214,7 @@ TEST_IMPL(tty_move_cursor) {
   cursor_pos_old = cursor_pos;
   snprintf(buffer, sizeof(buffer), "%s%dA", CSI, height / 4);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(handle);
+  cursor_pos = get_cursor_position(tty_out.handle);
   ASSERT(cursor_pos_old.Y - height / 4 == cursor_pos.Y);
   ASSERT(cursor_pos_old.X == cursor_pos.X);
 
@@ -217,7 +222,7 @@ TEST_IMPL(tty_move_cursor) {
   cursor_pos_old = cursor_pos;
   snprintf(buffer, sizeof(buffer), "%sB", CSI);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(handle);
+  cursor_pos = get_cursor_position(tty_out.handle);
   ASSERT(cursor_pos_old.Y + 1 == cursor_pos.Y);
   ASSERT(cursor_pos_old.X == cursor_pos.X);
 
@@ -225,7 +230,7 @@ TEST_IMPL(tty_move_cursor) {
   cursor_pos_old = cursor_pos;
   snprintf(buffer, sizeof(buffer), "%s%dB", CSI, height / 4);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(handle);
+  cursor_pos = get_cursor_position(tty_out.handle);
   ASSERT(cursor_pos_old.Y + height / 4 == cursor_pos.Y);
   ASSERT(cursor_pos_old.X == cursor_pos.X);
 
@@ -233,7 +238,7 @@ TEST_IMPL(tty_move_cursor) {
   cursor_pos_old = cursor_pos;
   snprintf(buffer, sizeof(buffer), "%sC", CSI);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(handle);
+  cursor_pos = get_cursor_position(tty_out.handle);
   ASSERT(cursor_pos_old.Y == cursor_pos.Y);
   ASSERT(cursor_pos_old.X + 1 == cursor_pos.X);
 
@@ -241,7 +246,7 @@ TEST_IMPL(tty_move_cursor) {
   cursor_pos_old = cursor_pos;
   snprintf(buffer, sizeof(buffer), "%s%dC", CSI, width / 4);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(handle);
+  cursor_pos = get_cursor_position(tty_out.handle);
   ASSERT(cursor_pos_old.Y == cursor_pos.Y);
   ASSERT(cursor_pos_old.X + width / 4 == cursor_pos.X);
 
@@ -249,7 +254,7 @@ TEST_IMPL(tty_move_cursor) {
   cursor_pos_old = cursor_pos;
   snprintf(buffer, sizeof(buffer), "%sD", CSI);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(handle);
+  cursor_pos = get_cursor_position(tty_out.handle);
   ASSERT(cursor_pos_old.Y == cursor_pos.Y);
   ASSERT(cursor_pos_old.X - 1 == cursor_pos.X);
 
@@ -257,7 +262,7 @@ TEST_IMPL(tty_move_cursor) {
   cursor_pos_old = cursor_pos;
   snprintf(buffer, sizeof(buffer), "%s%dD", CSI, width / 4);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(handle);
+  cursor_pos = get_cursor_position(tty_out.handle);
   ASSERT(cursor_pos_old.Y == cursor_pos.Y);
   ASSERT(cursor_pos_old.X - width / 4 == cursor_pos.X);
 
@@ -265,7 +270,7 @@ TEST_IMPL(tty_move_cursor) {
   cursor_pos_old = cursor_pos;
   snprintf(buffer, sizeof(buffer), "%sE", CSI);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(handle);
+  cursor_pos = get_cursor_position(tty_out.handle);
   ASSERT(cursor_pos_old.Y + 1 == cursor_pos.Y);
   ASSERT(0 == cursor_pos.X);
 
@@ -274,7 +279,7 @@ TEST_IMPL(tty_move_cursor) {
   snprintf(buffer, sizeof(buffer), "%s%dC%s%dE",
       CSI, width / 4, CSI, height / 4);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(handle);
+  cursor_pos = get_cursor_position(tty_out.handle);
   ASSERT(cursor_pos_old.Y + height / 4 == cursor_pos.Y);
   ASSERT(0 == cursor_pos.X);
 
@@ -283,7 +288,7 @@ TEST_IMPL(tty_move_cursor) {
   snprintf(buffer, sizeof(buffer), "%s%dC%sF",
       CSI, width / 4, CSI);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(handle);
+  cursor_pos = get_cursor_position(tty_out.handle);
   ASSERT(cursor_pos_old.Y - 1 == cursor_pos.Y);
   ASSERT(0 == cursor_pos.X);
 
@@ -292,7 +297,7 @@ TEST_IMPL(tty_move_cursor) {
   snprintf(buffer, sizeof(buffer), "%s%dC%s%dF",
       CSI, width / 4, CSI, height / 4);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(handle);
+  cursor_pos = get_cursor_position(tty_out.handle);
   ASSERT(cursor_pos_old.Y - height / 4 == cursor_pos.Y);
   ASSERT(0 == cursor_pos.X);
 
@@ -306,50 +311,30 @@ TEST_IMPL(tty_move_cursor) {
 
 
 TEST_IMPL(tty_hide_show_cursor) {
-  int r;
-  int ttyout_fd;
   uv_tty_t tty_out;
   uv_loop_t* loop;
   char buffer[1024];
-
-  /* Make sure we have an FD that refers to a tty */
-  HANDLE handle;
 
   uv__set_vterm_state(UV_UNSUPPORTED);
 
   loop = uv_default_loop();
 
-  handle = CreateFileA("conout$",
-                       GENERIC_READ | GENERIC_WRITE,
-                       FILE_SHARE_READ | FILE_SHARE_WRITE,
-                       NULL,
-                       OPEN_EXISTING,
-                       FILE_ATTRIBUTE_NORMAL,
-                       NULL);
-  ASSERT(handle != INVALID_HANDLE_VALUE);
-  ttyout_fd = _open_osfhandle((intptr_t) handle, 0);
-
-  ASSERT(ttyout_fd >= 0);
-
-  ASSERT(UV_TTY == uv_guess_handle(ttyout_fd));
-
-  r = uv_tty_init(uv_default_loop(), &tty_out, ttyout_fd, 0);  /* Writable. */
-  ASSERT(r == 0);
+  initialize_tty(&tty_out);
 
   /* Hide the cursor */
   snprintf(buffer, sizeof(buffer), "%s?25l", CSI);
   write_console(&tty_out, buffer);
-  ASSERT(!is_cursor_visible(handle));
+  ASSERT(!is_cursor_visible(tty_out.handle));
 
   /* Show the cursor */
   snprintf(buffer, sizeof(buffer), "%s?25h", CSI);
   write_console(&tty_out, buffer);
-  ASSERT(is_cursor_visible(handle));
+  ASSERT(is_cursor_visible(tty_out.handle));
 
   /* Invalid sequence */
   snprintf(buffer, sizeof(buffer), "%s??25l", CSI);
   write_console(&tty_out, buffer);
-  ASSERT(is_cursor_visible(handle));
+  ASSERT(is_cursor_visible(tty_out.handle));
 
   uv_close((uv_handle_t*) &tty_out, NULL);
 
@@ -361,37 +346,18 @@ TEST_IMPL(tty_hide_show_cursor) {
 
 
 TEST_IMPL(tty_erase) {
-  int r, dir;
-  int ttyout_fd;
+  int  dir;
   uv_tty_t tty_out;
   uv_loop_t* loop;
   char buffer[1024];
   struct screen scr_actual;
   struct screen scr_expect;
 
-  /* Make sure we have an FD that refers to a tty */
-  HANDLE handle;
-
   uv__set_vterm_state(UV_UNSUPPORTED);
 
   loop = uv_default_loop();
 
-  handle = CreateFileA("conout$",
-                       GENERIC_READ | GENERIC_WRITE,
-                       FILE_SHARE_READ | FILE_SHARE_WRITE,
-                       NULL,
-                       OPEN_EXISTING,
-                       FILE_ATTRIBUTE_NORMAL,
-                       NULL);
-  ASSERT(handle != INVALID_HANDLE_VALUE);
-  ttyout_fd = _open_osfhandle((intptr_t) handle, 0);
-
-  ASSERT(ttyout_fd >= 0);
-
-  ASSERT(UV_TTY == uv_guess_handle(ttyout_fd));
-
-  r = uv_tty_init(uv_default_loop(), &tty_out, ttyout_fd, 0);  /* Writable. */
-  ASSERT(r == 0);
+  initialize_tty(&tty_out);
 
   /* Erase to right */
   dir = 0;
