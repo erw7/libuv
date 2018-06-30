@@ -526,6 +526,54 @@ TEST_IMPL(tty_cursor_previous_line) {
 }
 
 
+TEST_IMPL(tty_cursor_horizontal_move_absolute) {
+  uv_tty_t tty_out;
+  uv_loop_t* loop;
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  COORD cursor_pos, cursor_pos_old;
+  char buffer[1024];
+  struct screen scr;
+
+  uv__set_vterm_state(UV_UNSUPPORTED);
+
+  loop = uv_default_loop();
+
+  initialize_tty(&tty_out, &scr);
+
+  cursor_pos_old.X = scr.width / 2;
+  cursor_pos_old.Y = scr.height / 2;
+  set_cursor_position(&tty_out, cursor_pos_old);
+
+  /* Move to beginning of line if omitted argument */
+  snprintf(buffer, sizeof(buffer),"%sG", CSI);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(1 == cursor_pos.X);
+  ASSERT(cursor_pos_old.Y == cursor_pos.Y);
+
+  /* Move cursor to nth character */
+  snprintf(buffer, sizeof(buffer),"%s%dG", CSI, scr.width / 4);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(scr.width / 4 == cursor_pos.X);
+  ASSERT(cursor_pos_old.Y == cursor_pos.Y);
+
+  /* Moving out of screen will fit within screen */
+  snprintf(buffer, sizeof(buffer),"%s%dG", CSI, scr.width + 1);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(scr.width == cursor_pos.X);
+  ASSERT(cursor_pos_old.Y == cursor_pos.Y);
+
+  uv_close((uv_handle_t*) &tty_out, NULL);
+
+  uv_run(loop, UV_RUN_DEFAULT);
+
+  MAKE_VALGRIND_HAPPY();
+  return 0;
+}
+
+
 TEST_IMPL(tty_cursor_move_absolute) {
   uv_tty_t tty_out;
   uv_loop_t* loop;
