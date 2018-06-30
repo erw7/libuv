@@ -61,6 +61,7 @@ TEST_DECLARE   (tty_cursor_horizontal_move_absolute)
 TEST_DECLARE   (tty_cursor_move_absolute)
 TEST_DECLARE   (tty_hide_show_cursor)
 TEST_DECLARE   (tty_erase)
+TEST_DECLARE   (tty_erase_line)
 #endif
 TEST_DECLARE   (tty_file)
 TEST_DECLARE   (tty_pty)
@@ -499,6 +500,7 @@ TASK_LIST_START
   TEST_ENTRY  (tty_cursor_move_absolute)
   TEST_ENTRY  (tty_hide_show_cursor)
   TEST_ENTRY  (tty_erase)
+  TEST_ENTRY  (tty_erase_line)
 #endif
   TEST_ENTRY  (tty_file)
   TEST_ENTRY  (tty_pty)

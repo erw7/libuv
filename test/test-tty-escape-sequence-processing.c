@@ -119,11 +119,15 @@ static char* setup_screen(uv_tty_t *tty_out) {
   char *screen_buffer;
   char *p;
   int count, width, height, line;
+  COORD origin;
   CONSOLE_SCREEN_BUFFER_INFO info;
   ASSERT(GetConsoleScreenBufferInfo(tty_out->handle, &info));
   width = info.dwSize.X;
   height = info.srWindow.Bottom - info.srWindow.Top + 1;
   count = info.dwSize.X * height - 1;
+  origin.X = 1;
+  origin.Y = 1;
+  set_cursor_position(tty_out, origin);
   screen_buffer = (char *)malloc(count * sizeof(*screen_buffer) + 1);
   ASSERT(screen_buffer != NULL);
   line = 0;
@@ -138,16 +142,51 @@ static char* setup_screen(uv_tty_t *tty_out) {
   return screen_buffer;
 }
 
-static void erase_line(struct screen *scr, int line, int pos, int dir) {
-  char *start = scr->text + scr->width * (line - 1);
+static void clear_screen(uv_tty_t *tty_out) {
+  DWORD length, number_of_chars_written;
+  COORD origin;
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  ASSERT(GetConsoleScreenBufferInfo(tty_out->handle, &info));
+  length = (info.srWindow.Bottom - info.srWindow.Top + 1) * info.dwSize.X - 1;
+  origin.X = 0;
+  origin.Y = info.srWindow.Top;
+  FillConsoleOutputCharacterA(tty_out->handle, ' ', length, origin,
+      &number_of_chars_written);
+  ASSERT(length == number_of_chars_written);
+}
+
+static void make_expect_screen(struct screen *scr, COORD cursor_position,
+    int dir, BOOL entire_screen) {
+  /* beginning of line */
+  char *start = scr->text + scr->width * (cursor_position.Y - 1);
   char *end;
   if (dir == 0) {
-    end = start + scr->width;
-    start += pos - 1;
+    if (entire_screen) {
+      /* erase to end of screen */
+      end = scr->text + scr->length;
+    } else {
+      /* erase to end of line */
+      end = start + scr->width;
+    }
+    /* erase from postition of cursor */
+    start += cursor_position.X - 1;
   } else if (dir == 1) {
-    end = start + pos;
+    /* erase to position of cursor */
+    end = start + cursor_position.X;
+    if (entire_screen) {
+      /* erase form beginning of screen */
+      start = scr->text;
+    }
   } else if (dir == 2) {
-    end = start + scr->width;
+    if (entire_screen) {
+      /* erase form beginning of screen */
+      start = scr->text;
+      /* erase to end of screen */
+      end = scr->text + scr->length;
+    } else {
+      /* erase to end of line */
+      end = start + scr->width;
+    }
   } else {
     ASSERT(FALSE);
   }
@@ -178,21 +217,24 @@ static void capture_screen(uv_tty_t *tty_out, struct screen *scr) {
   ASSERT(scr->length == length);
 }
 
-static void compare_screen(struct screen *actual, struct screen *expect) {
+static BOOL compare_screen(struct screen *actual, struct screen *expect) {
   int line, col;
   char *actual_current = actual->text;
   char *expect_current = expect->text;
+  BOOL result = TRUE;
   while(actual_current < actual->text + actual->length &&
       expect_current < expect->text + expect->length) {
     if (*actual_current != *expect_current) {
       line = (actual_current - actual->text) / actual->width + 1;
       col = (actual_current - actual->text) - actual->width * (line - 1) + 1;
       fprintf(stderr, "line:%d col:%d expected '%c' but found '%c'\n",
-          line, col, *actual_current, *expect_current);
+          line, col, *expect_current, *actual_current);
+      result = FALSE;
     }
     actual_current++;
     expect_current++;
   }
+  return result;
 }
 
 
@@ -588,6 +630,10 @@ TEST_IMPL(tty_cursor_move_absolute) {
 
   initialize_tty(&tty_out, &scr);
 
+  cursor_pos.X = scr.width / 2;
+  cursor_pos.Y = scr.height / 2;
+  set_cursor_position(&tty_out, cursor_pos);
+
   /* Move the cursor to home */
   snprintf(buffer, sizeof(buffer),"%sH", CSI);
   write_console(&tty_out, buffer);
@@ -669,6 +715,100 @@ TEST_IMPL(tty_erase) {
   int  dir;
   uv_tty_t tty_out;
   uv_loop_t* loop;
+  COORD cursor_pos;
+  char buffer[1024];
+  struct screen scr_actual;
+  struct screen scr_expect;
+
+  uv__set_vterm_state(UV_UNSUPPORTED);
+
+  loop = uv_default_loop();
+
+  initialize_tty(&tty_out, &scr_expect);
+
+  /* Erase to below */
+   dir = 0;
+   setup_screen(&tty_out);
+   capture_screen(&tty_out, &scr_expect);
+   cursor_pos.X = scr_expect.width / 2;
+   cursor_pos.Y = scr_expect.height / 2;
+   make_expect_screen(&scr_expect, cursor_pos, dir, TRUE);
+
+   set_cursor_position(&tty_out, cursor_pos);
+   snprintf(buffer, sizeof(buffer), "%s%dJ", CSI, dir);
+   write_console(&tty_out, buffer);
+   capture_screen(&tty_out, &scr_actual);
+
+   ASSERT(scr_actual.length == scr_expect.length);
+   ASSERT(scr_actual.width == scr_expect.width);
+   ASSERT(scr_actual.height == scr_expect.height);
+   ASSERT(compare_screen(&scr_actual, &scr_expect));
+   clear_screen(&tty_out);
+
+  /* Erase to above */
+   dir = 1;
+   setup_screen(&tty_out);
+   capture_screen(&tty_out, &scr_expect);
+   make_expect_screen(&scr_expect, cursor_pos, dir, TRUE);
+
+   set_cursor_position(&tty_out, cursor_pos);
+   snprintf(buffer, sizeof(buffer), "%s%dJ", CSI, dir);
+   write_console(&tty_out, buffer);
+   capture_screen(&tty_out, &scr_actual);
+
+   ASSERT(scr_actual.length == scr_expect.length);
+   ASSERT(scr_actual.width == scr_expect.width);
+   ASSERT(scr_actual.height == scr_expect.height);
+   ASSERT(compare_screen(&scr_actual, &scr_expect));
+   clear_screen(&tty_out);
+
+  /* Erase All */
+  dir = 2;
+  setup_screen(&tty_out);
+  capture_screen(&tty_out, &scr_expect);
+  make_expect_screen(&scr_expect, cursor_pos, dir, TRUE);
+
+  set_cursor_position(&tty_out, cursor_pos);
+  snprintf(buffer, sizeof(buffer), "%s%dJ", CSI, dir);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+
+  ASSERT(scr_actual.length == scr_expect.length);
+  ASSERT(scr_actual.width == scr_expect.width);
+  ASSERT(scr_actual.height == scr_expect.height);
+  ASSERT(compare_screen(&scr_actual, &scr_expect));
+  clear_screen(&tty_out);
+
+  /* Omit argument(Erase to right) */
+  dir = 0;
+  setup_screen(&tty_out);
+  capture_screen(&tty_out, &scr_expect);
+  make_expect_screen(&scr_expect, cursor_pos, dir, TRUE);
+  set_cursor_position(&tty_out, cursor_pos);
+  snprintf(buffer, sizeof(buffer), "%sJ", CSI);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+
+  ASSERT(scr_actual.length == scr_expect.length);
+  ASSERT(scr_actual.width == scr_expect.width);
+  ASSERT(scr_actual.height == scr_expect.height);
+  ASSERT(compare_screen(&scr_actual, &scr_expect));
+  clear_screen(&tty_out);
+
+  uv_close((uv_handle_t*) &tty_out, NULL);
+
+  uv_run(loop, UV_RUN_DEFAULT);
+
+  MAKE_VALGRIND_HAPPY();
+  return 0;
+}
+
+
+TEST_IMPL(tty_erase_line) {
+  int  dir;
+  uv_tty_t tty_out;
+  uv_loop_t* loop;
+  COORD cursor_pos;
   char buffer[1024];
   struct screen scr_actual;
   struct screen scr_expect;
@@ -683,76 +823,70 @@ TEST_IMPL(tty_erase) {
   dir = 0;
   setup_screen(&tty_out);
   capture_screen(&tty_out, &scr_expect);
-  erase_line(&scr_expect, scr_expect.height / 2, scr_expect.width / 2, dir);
+  cursor_pos.X = scr_expect.width / 2;
+  cursor_pos.Y = scr_expect.height / 2;
+  make_expect_screen(&scr_expect, cursor_pos, dir, FALSE);
 
-  snprintf(buffer, sizeof(buffer), "%s%d;%dH%s%dK",
-      CSI, scr_expect.height / 2, scr_expect.width / 2, CSI, dir);
+  set_cursor_position(&tty_out, cursor_pos);
+  snprintf(buffer, sizeof(buffer), "%s%dK", CSI, dir);
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
-  snprintf(buffer, sizeof(buffer), "%sH%sJ", CSI, CSI);
-  write_console(&tty_out, buffer);
 
   ASSERT(scr_actual.length == scr_expect.length);
   ASSERT(scr_actual.width == scr_expect.width);
   ASSERT(scr_actual.height == scr_expect.height);
-  compare_screen(&scr_actual, &scr_expect);
-  ASSERT(!strncmp(scr_actual.text, scr_expect.text, scr_actual.length));
+  ASSERT(compare_screen(&scr_actual, &scr_expect));
 
   /* Erase to Left */
   dir = 1;
   setup_screen(&tty_out);
   capture_screen(&tty_out, &scr_expect);
-  erase_line(&scr_expect, scr_expect.height / 2, scr_expect.width / 2, dir);
+  make_expect_screen(&scr_expect, cursor_pos, dir, FALSE);
 
-  snprintf(buffer, sizeof(buffer), "%s%d;%dH%s%dK",
-      CSI, scr_expect.height / 2, scr_expect.width / 2, CSI, dir);
+  set_cursor_position(&tty_out, cursor_pos);
+  snprintf(buffer, sizeof(buffer), "%s%dK", CSI, dir);
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
-  snprintf(buffer, sizeof(buffer), "%sH%sJ", CSI, CSI);
-  write_console(&tty_out, buffer);
 
   ASSERT(scr_actual.length == scr_expect.length);
   ASSERT(scr_actual.width == scr_expect.width);
   ASSERT(scr_actual.height == scr_expect.height);
-  compare_screen(&scr_actual, &scr_expect);
-  ASSERT(!strncmp(scr_actual.text, scr_expect.text, scr_actual.length));
+  ASSERT(compare_screen(&scr_actual, &scr_expect));
+  clear_screen(&tty_out);
 
   /* Erase All */
   dir = 2;
   setup_screen(&tty_out);
   capture_screen(&tty_out, &scr_expect);
-  erase_line(&scr_expect, scr_expect.height / 2, scr_expect.width / 2, dir);
+  make_expect_screen(&scr_expect, cursor_pos, dir, FALSE);
 
-  snprintf(buffer, sizeof(buffer), "%s%d;%dH%s%dK",
-      CSI, scr_expect.height / 2, scr_expect.width / 2, CSI, dir);
+  set_cursor_position(&tty_out, cursor_pos);
+  snprintf(buffer, sizeof(buffer), "%s%dK", CSI, dir);
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
-  snprintf(buffer, sizeof(buffer), "%sH%sJ", CSI, CSI);
-  write_console(&tty_out, buffer);
 
+  set_cursor_position(&tty_out, cursor_pos);
   ASSERT(scr_actual.length == scr_expect.length);
   ASSERT(scr_actual.width == scr_expect.width);
   ASSERT(scr_actual.height == scr_expect.height);
-  compare_screen(&scr_actual, &scr_expect);
-  ASSERT(!strncmp(scr_actual.text, scr_expect.text, scr_actual.length));
+  ASSERT(compare_screen(&scr_actual, &scr_expect));
+  clear_screen(&tty_out);
 
   /* Omit argument(Erase to right) */
   dir = 0;
   setup_screen(&tty_out);
   capture_screen(&tty_out, &scr_expect);
-  erase_line(&scr_expect, scr_expect.height / 2, scr_expect.width / 2, dir);
-  snprintf(buffer, sizeof(buffer), "%s%d;%dH%sK",
-      CSI, scr_expect.height / 2, scr_expect.width / 2, CSI);
+  make_expect_screen(&scr_expect, cursor_pos, dir, FALSE);
+  set_cursor_position(&tty_out, cursor_pos);
+  snprintf(buffer, sizeof(buffer), "%sK", CSI);
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
-  snprintf(buffer, sizeof(buffer), "%sH%sJ", CSI, CSI);
-  write_console(&tty_out, buffer);
 
   ASSERT(scr_actual.length == scr_expect.length);
   ASSERT(scr_actual.width == scr_expect.width);
   ASSERT(scr_actual.height == scr_expect.height);
-  compare_screen(&scr_actual, &scr_expect);
-  ASSERT(!strncmp(scr_actual.text, scr_expect.text, scr_actual.length));
+  ASSERT(compare_screen(&scr_actual, &scr_expect));
+  clear_screen(&tty_out);
 
   uv_close((uv_handle_t*) &tty_out, NULL);
 
