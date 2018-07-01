@@ -115,7 +115,7 @@ static void write_console(uv_tty_t *tty_out, char *src) {
   ASSERT(r == buf.len);
 }
 
-static char* setup_screen(uv_tty_t *tty_out) {
+static void setup_screen(uv_tty_t *tty_out) {
   char *screen_buffer;
   char *p;
   int count, width, height, line;
@@ -139,7 +139,7 @@ static char* setup_screen(uv_tty_t *tty_out) {
   }
   *(screen_buffer + count) = '\0';
   write_console(tty_out, screen_buffer);
-  return screen_buffer;
+  free(screen_buffer);
 }
 
 static void clear_screen(uv_tty_t *tty_out) {
@@ -237,6 +237,10 @@ static BOOL compare_screen(struct screen *actual, struct screen *expect) {
   return result;
 }
 
+static void free_screen(struct screen scr) {
+  free(scr.text);
+  free(scr.attributes);
+};
 
 TEST_IMPL(tty_cursor_up) {
   uv_tty_t tty_out;
@@ -744,6 +748,8 @@ TEST_IMPL(tty_erase) {
    ASSERT(scr_actual.height == scr_expect.height);
    ASSERT(compare_screen(&scr_actual, &scr_expect));
    clear_screen(&tty_out);
+   free_screen(scr_expect);
+   free_screen(scr_actual);
 
   /* Erase to above */
    dir = 1;
@@ -761,6 +767,8 @@ TEST_IMPL(tty_erase) {
    ASSERT(scr_actual.height == scr_expect.height);
    ASSERT(compare_screen(&scr_actual, &scr_expect));
    clear_screen(&tty_out);
+   free_screen(scr_expect);
+   free_screen(scr_actual);
 
   /* Erase All */
   dir = 2;
@@ -778,6 +786,8 @@ TEST_IMPL(tty_erase) {
   ASSERT(scr_actual.height == scr_expect.height);
   ASSERT(compare_screen(&scr_actual, &scr_expect));
   clear_screen(&tty_out);
+  free_screen(scr_expect);
+  free_screen(scr_actual);
 
   /* Omit argument(Erase to right) */
   dir = 0;
@@ -794,6 +804,8 @@ TEST_IMPL(tty_erase) {
   ASSERT(scr_actual.height == scr_expect.height);
   ASSERT(compare_screen(&scr_actual, &scr_expect));
   clear_screen(&tty_out);
+  free_screen(scr_expect);
+  free_screen(scr_actual);
 
   uv_close((uv_handle_t*) &tty_out, NULL);
 
@@ -836,6 +848,8 @@ TEST_IMPL(tty_erase_line) {
   ASSERT(scr_actual.width == scr_expect.width);
   ASSERT(scr_actual.height == scr_expect.height);
   ASSERT(compare_screen(&scr_actual, &scr_expect));
+  free_screen(scr_expect);
+  free_screen(scr_actual);
 
   /* Erase to Left */
   dir = 1;
@@ -853,6 +867,8 @@ TEST_IMPL(tty_erase_line) {
   ASSERT(scr_actual.height == scr_expect.height);
   ASSERT(compare_screen(&scr_actual, &scr_expect));
   clear_screen(&tty_out);
+  free_screen(scr_expect);
+  free_screen(scr_actual);
 
   /* Erase All */
   dir = 2;
@@ -871,6 +887,8 @@ TEST_IMPL(tty_erase_line) {
   ASSERT(scr_actual.height == scr_expect.height);
   ASSERT(compare_screen(&scr_actual, &scr_expect));
   clear_screen(&tty_out);
+  free_screen(scr_expect);
+  free_screen(scr_actual);
 
   /* Omit argument(Erase to right) */
   dir = 0;
@@ -881,6 +899,8 @@ TEST_IMPL(tty_erase_line) {
   snprintf(buffer, sizeof(buffer), "%sK", CSI);
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
+  free_screen(scr_expect);
+  free_screen(scr_actual);
 
   ASSERT(scr_actual.length == scr_expect.length);
   ASSERT(scr_actual.width == scr_expect.width);
