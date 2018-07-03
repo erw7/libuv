@@ -760,11 +760,6 @@ TEST_IMPL(tty_hide_show_cursor) {
   write_console(&tty_out, buffer);
   ASSERT(is_cursor_visible(&tty_out));
 
-  /* Invalid sequence */
-  snprintf(buffer, sizeof(buffer), "%s??25l", CSI);
-  write_console(&tty_out, buffer);
-  ASSERT(is_cursor_visible(&tty_out));
-
   uv_close((uv_handle_t*) &tty_out, NULL);
 
   uv_run(loop, UV_RUN_DEFAULT);
