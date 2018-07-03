@@ -155,30 +155,17 @@ static void write_console(uv_tty_t *tty_out, char *src) {
 }
 
 static void setup_screen(uv_tty_t *tty_out) {
-  char *screen_buffer;
-  char *p;
-  int count, width, height, line;
+  DWORD length, number_of_written;
   COORD origin;
   CONSOLE_SCREEN_BUFFER_INFO info;
+  SMALL_RECT rect;
   ASSERT(GetConsoleScreenBufferInfo(tty_out->handle, &info));
-  width = info.dwSize.X;
-  height = info.srWindow.Bottom - info.srWindow.Top + 1;
-  count = info.dwSize.X * height - 1;
-  origin.X = 1;
-  origin.Y = 1;
-  set_cursor_position(tty_out, origin);
-  screen_buffer = (char *)malloc(count * sizeof(*screen_buffer) + 1);
-  ASSERT(screen_buffer != NULL);
-  line = 0;
-  for (p = screen_buffer; p < screen_buffer + count; p++) {
-    *p = 'a' + line;
-    if (((p - screen_buffer + 1) % width) == 0) {
-      line = line >= 25 ? 0 : line + 1;
-    }
-  }
-  *(screen_buffer + count) = '\0';
-  write_console(tty_out, screen_buffer);
-  free(screen_buffer);
+  length = info.dwSize.X * (info.srWindow.Bottom - info.srWindow.Top + 1);
+  origin.X = 0;
+  origin.Y = info.srWindow.Top;
+  ASSERT(FillConsoleOutputCharacter(tty_out->handle, '.', length, origin,
+        &number_of_written));
+  ASSERT(length == number_of_written);
 }
 
 static void clear_screen(uv_tty_t *tty_out, struct screen scr) {
