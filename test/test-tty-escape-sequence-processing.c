@@ -288,14 +288,14 @@ static BOOL compare_screen(struct screen *actual, struct screen *expect) {
     if (*(actual->text + current) != *(expect->text + current)) {
       line = current / actual->width + 1;
       col = current - actual->width * (line - 1) + 1;
-      fprintf(stderr, "line:%d col:%d expected '%c' but found '%c'\n",
+      fprintf(stderr, "line:%d col:%d expected character '%c' but found '%c'\n",
           line, col, *(expect->text + current), *(actual->text + current));
       result = FALSE;
     }
     if (*(actual->attributes + current) != *(expect->attributes + current)) {
       line = current / actual->width + 1;
       col = current - actual->width * (line - 1) + 1;
-      fprintf(stderr, "line:%d col:%d expected '%u' but found '%u'\n",
+      fprintf(stderr, "line:%d col:%d expected attributes '%u' but found '%u'\n",
           line, col,
           *(expect->attributes + current), *(actual->attributes + current));
       result = FALSE;
