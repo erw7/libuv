@@ -901,7 +901,6 @@ TEST_IMPL(tty_erase_line) {
   capture_screen(&tty_out, &scr_actual);
 
   ASSERT(compare_screen(&scr_actual, &scr_expect));
-  clear_screen(&tty_out, scr_expect);
   free_screen(scr_expect);
   free_screen(scr_actual);
 
@@ -916,9 +915,7 @@ TEST_IMPL(tty_erase_line) {
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
 
-  set_cursor_position(&tty_out, cursor_pos);
   ASSERT(compare_screen(&scr_actual, &scr_expect));
-  clear_screen(&tty_out, scr_expect);
   free_screen(scr_expect);
   free_screen(scr_actual);
 
