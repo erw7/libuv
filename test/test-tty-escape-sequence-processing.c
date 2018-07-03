@@ -793,6 +793,21 @@ TEST_IMPL(tty_erase) {
   make_expect_screen_erase(&scr_expect, cursor_pos, dir, TRUE);
 
   set_cursor_position(&tty_out, cursor_pos);
+  snprintf(buffer, sizeof(buffer), "%sJ", CSI);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+
+  ASSERT(compare_screen(&scr_actual, &scr_expect));
+  clear_screen(&tty_out, scr_expect);
+  free_screen(scr_expect);
+  free_screen(scr_actual);
+
+  /* Erase to below(dir = 0) */
+  setup_screen(&tty_out);
+  capture_screen(&tty_out, &scr_expect);
+  make_expect_screen_erase(&scr_expect, cursor_pos, dir, TRUE);
+
+  set_cursor_position(&tty_out, cursor_pos);
   snprintf(buffer, sizeof(buffer), "%s%dJ", CSI, dir);
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
@@ -834,21 +849,6 @@ TEST_IMPL(tty_erase) {
   free_screen(scr_expect);
   free_screen(scr_actual);
 
-  /* Omit argument(Erase to right) */
-  dir = 0;
-  setup_screen(&tty_out);
-  capture_screen(&tty_out, &scr_expect);
-  make_expect_screen_erase(&scr_expect, cursor_pos, dir, TRUE);
-  set_cursor_position(&tty_out, cursor_pos);
-  snprintf(buffer, sizeof(buffer), "%sJ", CSI);
-  write_console(&tty_out, buffer);
-  capture_screen(&tty_out, &scr_actual);
-
-  ASSERT(compare_screen(&scr_actual, &scr_expect));
-  clear_screen(&tty_out, scr_expect);
-  free_screen(scr_expect);
-  free_screen(scr_actual);
-
   uv_close((uv_handle_t*) &tty_out, NULL);
 
   uv_run(loop, UV_RUN_DEFAULT);
@@ -882,11 +882,26 @@ TEST_IMPL(tty_erase_line) {
   make_expect_screen_erase(&scr_expect, cursor_pos, dir, FALSE);
 
   set_cursor_position(&tty_out, cursor_pos);
+  snprintf(buffer, sizeof(buffer), "%sK", CSI);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+
+  ASSERT(compare_screen(&scr_actual, &scr_expect));
+  free_screen(scr_expect);
+  free_screen(scr_actual);
+
+  /* Erase to right(dir = 0) */
+  setup_screen(&tty_out);
+  capture_screen(&tty_out, &scr_expect);
+  make_expect_screen_erase(&scr_expect, cursor_pos, dir, FALSE);
+
+  set_cursor_position(&tty_out, cursor_pos);
   snprintf(buffer, sizeof(buffer), "%s%dK", CSI, dir);
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
 
   ASSERT(compare_screen(&scr_actual, &scr_expect));
+  clear_screen(&tty_out, scr_expect);
   free_screen(scr_expect);
   free_screen(scr_actual);
 
@@ -901,6 +916,7 @@ TEST_IMPL(tty_erase_line) {
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
 
+  set_cursor_position(&tty_out, cursor_pos);
   ASSERT(compare_screen(&scr_actual, &scr_expect));
   clear_screen(&tty_out, scr_expect);
   free_screen(scr_expect);
@@ -914,22 +930,6 @@ TEST_IMPL(tty_erase_line) {
 
   set_cursor_position(&tty_out, cursor_pos);
   snprintf(buffer, sizeof(buffer), "%s%dK", CSI, dir);
-  write_console(&tty_out, buffer);
-  capture_screen(&tty_out, &scr_actual);
-
-  set_cursor_position(&tty_out, cursor_pos);
-  ASSERT(compare_screen(&scr_actual, &scr_expect));
-  clear_screen(&tty_out, scr_expect);
-  free_screen(scr_expect);
-  free_screen(scr_actual);
-
-  /* Omit argument(Erase to right) */
-  dir = 0;
-  setup_screen(&tty_out);
-  capture_screen(&tty_out, &scr_expect);
-  make_expect_screen_erase(&scr_expect, cursor_pos, dir, FALSE);
-  set_cursor_position(&tty_out, cursor_pos);
-  snprintf(buffer, sizeof(buffer), "%sK", CSI);
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
 
