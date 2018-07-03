@@ -45,24 +45,32 @@
 #define BACKGROUND_CYAN (BACKGROUND_GREEN | BACKGROUND_BLUE)
 #define BACKGROUND_MAGENTA (BACKGROUND_RED | BACKGROUND_BLUE)
 
-#define F_BLACK   30
-#define F_RED     31
-#define F_GREEN   32
-#define F_YELLOW  33
-#define F_BLUE    34
-#define F_MAGENTA 35
-#define F_CYAN    36
-#define F_WHITE   37
-#define F_DEFAULT 39
-#define B_BLACK   40
-#define B_RED     41
-#define B_GREEN   42
-#define B_YELLOW  43
-#define B_BLUE    44
-#define B_MAGENTA 45
-#define B_CYAN    46
-#define B_WHITE   47
-#define B_DEFAULT 49
+#define F_INTENSITY      1
+#define FB_INTENSITY     2
+#define B_INTENSITY      5
+#define INVERSE          7
+#define F_INTENSITY_OFF1 21
+#define F_INTENSITY_OFF2 22
+#define B_INTENSITY_OFF  25
+#define INVERSE_OFF      27
+#define F_BLACK          30
+#define F_RED            31
+#define F_GREEN          32
+#define F_YELLOW         33
+#define F_BLUE           34
+#define F_MAGENTA        35
+#define F_CYAN           36
+#define F_WHITE          37
+#define F_DEFAULT        39
+#define B_BLACK          40
+#define B_RED            41
+#define B_GREEN          42
+#define B_YELLOW         43
+#define B_BLUE           44
+#define B_MAGENTA        45
+#define B_CYAN           46
+#define B_WHITE          47
+#define B_DEFAULT        49
 
 struct screen {
   char *text;
@@ -1054,6 +1062,32 @@ TEST_IMPL(tty_set_style) {
     free_screen(scr_expect);
     free_screen(scr_actual);
   }
+
+  /* Set foreground bright on */
+  capture_screen(&tty_out, &scr_expect);
+  cursor_pos.X = scr_expect.width / 2;
+  cursor_pos.Y = scr_expect.height / 2;
+  set_cursor_position(&tty_out, cursor_pos);
+  attr = scr_expect.default_attr;
+  attr |= FOREGROUND_INTENSITY;
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  make_expect_screen_set_attr(&scr_expect, cursor_pos, strlen(HELLO),
+      attr);
+  cursor_pos.X += strlen(HELLO);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  make_expect_screen_set_attr(&scr_expect, cursor_pos, strlen(HELLO),
+      attr);
+
+  snprintf(buffer, sizeof(buffer), "%s%dm%s%s%dm%s%dm%s%s%dm",
+      CSI, F_INTENSITY, HELLO, CSI, F_INTENSITY_OFF1,
+      CSI, F_INTENSITY, HELLO, CSI, F_INTENSITY_OFF2);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+
+  ASSERT(compare_screen(&scr_actual, &scr_expect));
+  clear_screen(&tty_out, scr_expect);
+  free_screen(scr_expect);
+  free_screen(scr_actual);
 
   uv_close((uv_handle_t*) &tty_out, NULL);
 
