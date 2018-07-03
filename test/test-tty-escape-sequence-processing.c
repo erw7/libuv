@@ -137,6 +137,12 @@ static BOOL is_cursor_visible(uv_tty_t *tty_out) {
   return info.bVisible;
 }
 
+static BOOL is_scrolling(uv_tty_t *tty_out, struct screen scr) {
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  ASSERT(GetConsoleScreenBufferInfo(tty_out->handle, &info));
+  return info.srWindow.Top != scr.top;
+}
+
 static void write_console(uv_tty_t *tty_out, char *src) {
   int r;
   uv_buf_t buf;
@@ -320,7 +326,6 @@ static void free_screen(struct screen scr) {
 TEST_IMPL(tty_cursor_up) {
   uv_tty_t tty_out;
   uv_loop_t* loop;
-  CONSOLE_SCREEN_BUFFER_INFO info;
   COORD cursor_pos, cursor_pos_old;
   char buffer[1024];
   struct screen scr;
@@ -357,8 +362,7 @@ TEST_IMPL(tty_cursor_up) {
   cursor_pos = get_cursor_position(&tty_out);
   ASSERT(cursor_pos_old.Y == cursor_pos.Y);
   ASSERT(cursor_pos_old.X == cursor_pos.X);
-  ASSERT(GetConsoleScreenBufferInfo(tty_out.handle, &info));
-  ASSERT(info.srWindow.Top == scr.top);
+  ASSERT(!is_scrolling(&tty_out, scr));
 
   uv_close((uv_handle_t*) &tty_out, NULL);
 
@@ -372,7 +376,6 @@ TEST_IMPL(tty_cursor_up) {
 TEST_IMPL(tty_cursor_down) {
   uv_tty_t tty_out;
   uv_loop_t* loop;
-  CONSOLE_SCREEN_BUFFER_INFO info;
   COORD cursor_pos, cursor_pos_old;
   char buffer[1024];
   struct screen scr;
@@ -409,8 +412,7 @@ TEST_IMPL(tty_cursor_down) {
   cursor_pos = get_cursor_position(&tty_out);
   ASSERT(cursor_pos_old.Y == cursor_pos.Y);
   ASSERT(cursor_pos_old.X == cursor_pos.X);
-  ASSERT(GetConsoleScreenBufferInfo(tty_out.handle, &info));
-  ASSERT(info.srWindow.Top == scr.top);
+  ASSERT(!is_scrolling(&tty_out, scr));
 
   uv_close((uv_handle_t*) &tty_out, NULL);
 
@@ -470,6 +472,7 @@ TEST_IMPL(tty_cursor_forward) {
   cursor_pos = get_cursor_position(&tty_out);
   ASSERT(cursor_pos_old.Y == cursor_pos.Y);
   ASSERT(cursor_pos_old.X == cursor_pos.X);
+  ASSERT(!is_scrolling(&tty_out, scr));
 
   uv_close((uv_handle_t*) &tty_out, NULL);
 
@@ -483,7 +486,6 @@ TEST_IMPL(tty_cursor_forward) {
 TEST_IMPL(tty_cursor_back) {
   uv_tty_t tty_out;
   uv_loop_t* loop;
-  CONSOLE_SCREEN_BUFFER_INFO info;
   COORD cursor_pos, cursor_pos_old;
   char buffer[1024];
   struct screen scr;
@@ -530,8 +532,7 @@ TEST_IMPL(tty_cursor_back) {
   cursor_pos = get_cursor_position(&tty_out);
   ASSERT(1 == cursor_pos.Y);
   ASSERT(1 == cursor_pos.X);
-  ASSERT(GetConsoleScreenBufferInfo(tty_out.handle, &info));
-  ASSERT(info.srWindow.Top == scr.top);
+  ASSERT(!is_scrolling(&tty_out, scr));
 
   uv_close((uv_handle_t*) &tty_out, NULL);
 
@@ -583,6 +584,7 @@ TEST_IMPL(tty_cursor_next_line) {
   cursor_pos = get_cursor_position(&tty_out);
   ASSERT(cursor_pos_old.Y == cursor_pos.Y);
   ASSERT(1 == cursor_pos.X);
+  ASSERT(!is_scrolling(&tty_out, scr));
 
   uv_close((uv_handle_t*) &tty_out, NULL);
 
@@ -596,7 +598,6 @@ TEST_IMPL(tty_cursor_next_line) {
 TEST_IMPL(tty_cursor_previous_line) {
   uv_tty_t tty_out;
   uv_loop_t* loop;
-  CONSOLE_SCREEN_BUFFER_INFO info;
   COORD cursor_pos, cursor_pos_old;
   char buffer[1024];
   struct screen scr;
@@ -635,8 +636,7 @@ TEST_IMPL(tty_cursor_previous_line) {
   cursor_pos = get_cursor_position(&tty_out);
   ASSERT(1 == cursor_pos.Y);
   ASSERT(1 == cursor_pos.X);
-  ASSERT(GetConsoleScreenBufferInfo(tty_out.handle, &info));
-  ASSERT(info.srWindow.Top == scr.top);
+  ASSERT(!is_scrolling(&tty_out, scr));
 
   uv_close((uv_handle_t*) &tty_out, NULL);
 
@@ -650,7 +650,6 @@ TEST_IMPL(tty_cursor_previous_line) {
 TEST_IMPL(tty_cursor_horizontal_move_absolute) {
   uv_tty_t tty_out;
   uv_loop_t* loop;
-  CONSOLE_SCREEN_BUFFER_INFO info;
   COORD cursor_pos, cursor_pos_old;
   char buffer[1024];
   struct screen scr;
@@ -698,7 +697,6 @@ TEST_IMPL(tty_cursor_horizontal_move_absolute) {
 TEST_IMPL(tty_cursor_move_absolute) {
   uv_tty_t tty_out;
   uv_loop_t* loop;
-  CONSOLE_SCREEN_BUFFER_INFO info;
   COORD cursor_pos;
   char buffer[1024];
   struct screen scr;
@@ -742,8 +740,7 @@ TEST_IMPL(tty_cursor_move_absolute) {
   cursor_pos = get_cursor_position(&tty_out);
   ASSERT(scr.width / 2 == cursor_pos.X);
   ASSERT(scr.height == cursor_pos.Y);
-  ASSERT(GetConsoleScreenBufferInfo(tty_out.handle, &info));
-  ASSERT(info.srWindow.Top == scr.top);
+  ASSERT(!is_scrolling(&tty_out, scr));
 
   uv_close((uv_handle_t*) &tty_out, NULL);
 
