@@ -325,7 +325,7 @@ TEST_IMPL(tty_cursor_up) {
   cursor_pos_old.Y = scr.height / 2;
   set_cursor_position(&tty_out, cursor_pos_old);
 
-  /* cursor up */
+  /* cursor up one times if omitted arguments */
   snprintf(buffer, sizeof(buffer), "%sA", CSI);
   write_console(&tty_out, buffer);
   cursor_pos = get_cursor_position(&tty_out);
@@ -375,7 +375,7 @@ TEST_IMPL(tty_cursor_down) {
   cursor_pos_old.Y = scr.height / 2;
   set_cursor_position(&tty_out, cursor_pos_old);
 
-  /* cursor down */
+  /* cursor down one times if omitted arguments */
   snprintf(buffer, sizeof(buffer), "%sB", CSI);
   write_console(&tty_out, buffer);
   cursor_pos = get_cursor_position(&tty_out);
@@ -425,7 +425,7 @@ TEST_IMPL(tty_cursor_forward) {
   cursor_pos_old.Y = scr.height / 2;
   set_cursor_position(&tty_out, cursor_pos_old);
 
-  /* cursor forward */
+  /* cursor forward one times if omitted arguments */
   snprintf(buffer, sizeof(buffer), "%sC", CSI);
   write_console(&tty_out, buffer);
   cursor_pos = get_cursor_position(&tty_out);
@@ -485,7 +485,7 @@ TEST_IMPL(tty_cursor_back) {
   cursor_pos_old.Y = scr.height / 2;
   set_cursor_position(&tty_out, cursor_pos_old);
 
-  /* cursor back */
+  /* cursor back one times if omitted arguments */
   snprintf(buffer, sizeof(buffer), "%sD", CSI);
   write_console(&tty_out, buffer);
   cursor_pos = get_cursor_position(&tty_out);
@@ -547,7 +547,7 @@ TEST_IMPL(tty_cursor_next_line) {
   cursor_pos_old.Y = scr.height / 2;
   set_cursor_position(&tty_out, cursor_pos_old);
 
-  /* cursor next line */
+  /* cursor next line one times if omitted arguments */
   snprintf(buffer, sizeof(buffer), "%sE", CSI);
   write_console(&tty_out, buffer);
   cursor_pos = get_cursor_position(&tty_out);
@@ -599,7 +599,7 @@ TEST_IMPL(tty_cursor_previous_line) {
   cursor_pos_old.Y = scr.height / 2;
   set_cursor_position(&tty_out, cursor_pos_old);
 
-  /* cursor previous line */
+  /* cursor previous line one times if omitted arguments */
   snprintf(buffer, sizeof(buffer), "%sF", CSI);
   write_console(&tty_out, buffer);
   cursor_pos = get_cursor_position(&tty_out);
@@ -698,7 +698,7 @@ TEST_IMPL(tty_cursor_move_absolute) {
   cursor_pos.Y = scr.height / 2;
   set_cursor_position(&tty_out, cursor_pos);
 
-  /* Move the cursor to home */
+  /* Move the cursor to home if omitted arguments */
   snprintf(buffer, sizeof(buffer),"%sH", CSI);
   write_console(&tty_out, buffer);
   cursor_pos = get_cursor_position(&tty_out);
@@ -789,7 +789,7 @@ TEST_IMPL(tty_erase) {
 
   initialize_tty(&tty_out, &scr_expect);
 
-  /* Erase to below */
+  /* Erase to below if omitted argument */
   dir = 0;
   setup_screen(&tty_out);
   capture_screen(&tty_out, &scr_expect);
@@ -878,7 +878,7 @@ TEST_IMPL(tty_erase_line) {
 
   initialize_tty(&tty_out, &scr_expect);
 
-  /* Erase to right */
+  /* Erase to right if omitted arguments */
   dir = 0;
   setup_screen(&tty_out);
   capture_screen(&tty_out, &scr_expect);
@@ -993,6 +993,7 @@ TEST_IMPL(tty_set_style) {
   fg_attrs[8][1] = scr_expect.default_attr & FOREGROUND_WHITE;
   bg_attrs[0][1] = scr_expect.default_attr & BACKGROUND_WHITE;
 
+  /* Set foreground color */
   length = sizeof(fg_attrs) / sizeof(fg_attrs[0]);
   for (i = 0; i < length; i++) {
     capture_screen(&tty_out, &scr_expect);
@@ -1014,6 +1015,7 @@ TEST_IMPL(tty_set_style) {
     free_screen(scr_actual);
   }
 
+  /* Set background color */
   length = sizeof(bg_attrs) / sizeof(bg_attrs[0]);
   for (i = 0; i < length; i++) {
     fprintf(stderr, "%d\n", i);
@@ -1036,6 +1038,7 @@ TEST_IMPL(tty_set_style) {
     free_screen(scr_actual);
   }
 
+  /* Set foregroud and background color */
   ASSERT(sizeof(fg_attrs) / sizeof(fg_attrs[0]) == sizeof(bg_attrs) / sizeof(bg_attrs[0]));
   length = sizeof(bg_attrs) / sizeof(bg_attrs[0]);
   for (i = 0; i < length; i++) {
