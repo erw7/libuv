@@ -1039,7 +1039,6 @@ TEST_IMPL(tty_set_style) {
   /* Set background color */
   length = sizeof(bg_attrs) / sizeof(bg_attrs[0]);
   for (i = 0; i < length; i++) {
-    fprintf(stderr, "%d\n", i);
     capture_screen(&tty_out, &scr_expect);
     cursor_pos.X = scr_expect.width / 2;
     cursor_pos.Y = scr_expect.height / 2;
