@@ -86,6 +86,7 @@ static void initialize_tty(uv_tty_t *tty_out, struct screen *scr) {
   int r;
   int ttyout_fd;
   CONSOLE_SCREEN_BUFFER_INFO info;
+  SMALL_RECT rect;
 
   uv__set_vterm_state(UV_UNSUPPORTED);
 
@@ -100,23 +101,29 @@ static void initialize_tty(uv_tty_t *tty_out, struct screen *scr) {
                        FILE_ATTRIBUTE_NORMAL,
                        NULL);
   ASSERT(handle != INVALID_HANDLE_VALUE);
-  ttyout_fd = _open_osfhandle((intptr_t) handle, 0);
 
-  ASSERT(ttyout_fd >= 0);
-
-  ASSERT(UV_TTY == uv_guess_handle(ttyout_fd));
-
-  r = uv_tty_init(uv_default_loop(), tty_out, ttyout_fd, 0);  /* Writable. */
-  ASSERT(r == 0);
-
-  ASSERT(GetConsoleScreenBufferInfo(tty_out->handle, &info));
+  ASSERT(GetConsoleScreenBufferInfo(handle, &info));
   scr->text = NULL;
   scr->attributes = NULL;
-  scr->top = info.srWindow.Top;
   scr->width = info.dwSize.X;
   scr->height = info.srWindow.Bottom - info.srWindow.Top + 1;
   scr->length = scr->width * scr->height;
   scr->default_attr = info.wAttributes;
+
+  rect.Left = 0;
+  rect.Top = info.dwCursorPosition.Y + scr->height > info.dwSize.Y ?
+    info.dwSize.Y - scr->height - 1 : info.dwCursorPosition.Y;
+  rect.Right = scr->width - 1;
+  rect.Bottom = rect.Top + scr->height - 1;
+  ASSERT(SetConsoleWindowInfo(handle, TRUE, &rect));
+
+  scr->top = rect.Top;
+
+  ttyout_fd = _open_osfhandle((intptr_t) handle, 0);
+  ASSERT(ttyout_fd >= 0);
+  ASSERT(UV_TTY == uv_guess_handle(ttyout_fd));
+  r = uv_tty_init(uv_default_loop(), tty_out, ttyout_fd, 0);  /* Writable. */
+  ASSERT(r == 0);
 }
 
 static COORD get_cursor_position(uv_tty_t *tty_out) {
@@ -136,6 +143,11 @@ static void set_cursor_position(uv_tty_t *tty_out, COORD pos) {
   pos.X -= 1;
   pos.Y += info.srWindow.Top - 1;
   ASSERT(SetConsoleCursorPosition(handle, pos));
+}
+
+static void set_cursor_to_home(uv_tty_t *tty_out) {
+  COORD origin = {1, 1};
+  set_cursor_position(tty_out, origin);
 }
 
 static BOOL is_cursor_visible(uv_tty_t *tty_out) {
@@ -359,6 +371,7 @@ TEST_IMPL(tty_cursor_up) {
   ASSERT(cursor_pos_old.X == cursor_pos.X);
   ASSERT(!is_scrolling(&tty_out, scr));
 
+  set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
 
   uv_run(loop, UV_RUN_DEFAULT);
@@ -409,6 +422,7 @@ TEST_IMPL(tty_cursor_down) {
   ASSERT(cursor_pos_old.X == cursor_pos.X);
   ASSERT(!is_scrolling(&tty_out, scr));
 
+  set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
 
   uv_run(loop, UV_RUN_DEFAULT);
@@ -469,6 +483,7 @@ TEST_IMPL(tty_cursor_forward) {
   ASSERT(cursor_pos_old.X == cursor_pos.X);
   ASSERT(!is_scrolling(&tty_out, scr));
 
+  set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
 
   uv_run(loop, UV_RUN_DEFAULT);
@@ -529,6 +544,7 @@ TEST_IMPL(tty_cursor_back) {
   ASSERT(1 == cursor_pos.X);
   ASSERT(!is_scrolling(&tty_out, scr));
 
+  set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
 
   uv_run(loop, UV_RUN_DEFAULT);
@@ -581,6 +597,7 @@ TEST_IMPL(tty_cursor_next_line) {
   ASSERT(1 == cursor_pos.X);
   ASSERT(!is_scrolling(&tty_out, scr));
 
+  set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
 
   uv_run(loop, UV_RUN_DEFAULT);
@@ -633,6 +650,7 @@ TEST_IMPL(tty_cursor_previous_line) {
   ASSERT(1 == cursor_pos.X);
   ASSERT(!is_scrolling(&tty_out, scr));
 
+  set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
 
   uv_run(loop, UV_RUN_DEFAULT);
@@ -680,6 +698,7 @@ TEST_IMPL(tty_cursor_horizontal_move_absolute) {
   ASSERT(scr.width == cursor_pos.X);
   ASSERT(cursor_pos_old.Y == cursor_pos.Y);
 
+  set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
 
   uv_run(loop, UV_RUN_DEFAULT);
@@ -737,6 +756,7 @@ TEST_IMPL(tty_cursor_move_absolute) {
   ASSERT(scr.height == cursor_pos.Y);
   ASSERT(!is_scrolling(&tty_out, scr));
 
+  set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
 
   uv_run(loop, UV_RUN_DEFAULT);
@@ -857,6 +877,7 @@ TEST_IMPL(tty_erase) {
   free_screen(scr_expect);
   free_screen(scr_actual);
 
+  set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
 
   uv_run(loop, UV_RUN_DEFAULT);
@@ -943,6 +964,7 @@ TEST_IMPL(tty_erase_line) {
   free_screen(scr_expect);
   free_screen(scr_actual);
 
+  set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
 
   uv_run(loop, UV_RUN_DEFAULT);
@@ -1089,6 +1111,7 @@ TEST_IMPL(tty_set_style) {
   free_screen(scr_expect);
   free_screen(scr_actual);
 
+  set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
 
   uv_run(loop, UV_RUN_DEFAULT);
