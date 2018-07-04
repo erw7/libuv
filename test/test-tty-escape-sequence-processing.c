@@ -980,6 +980,7 @@ TEST_IMPL(tty_set_style) {
   char buffer[1024];
   struct screen scr_actual;
   struct screen scr_expect;
+  WORD fg, bg;
   WORD fg_attrs[9][2] = {
     {F_BLACK, FOREGROUND_BLACK},
     {F_RED, FOREGROUND_RED},
@@ -1122,6 +1123,34 @@ TEST_IMPL(tty_set_style) {
 
   snprintf(buffer, sizeof(buffer), "%s%dm%s%s%dm",
       CSI, B_INTENSITY, HELLO, CSI, B_INTENSITY_OFF);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+
+  ASSERT(compare_screen(&scr_actual, &scr_expect));
+  clear_screen(&tty_out, scr_expect);
+  free_screen(scr_expect);
+  free_screen(scr_actual);
+
+  /* Inverse */
+  capture_screen(&tty_out, &scr_expect);
+  cursor_pos.X = scr_expect.width / 2;
+  cursor_pos.Y = scr_expect.height / 2;
+  set_cursor_position(&tty_out, cursor_pos);
+  attr = scr_expect.default_attr;
+  fg = attr & FOREGROUND_WHITE;
+  bg = attr & BACKGROUND_WHITE;
+  attr &= (~FOREGROUND_WHITE & ~BACKGROUND_WHITE);
+  attr |= COMMON_LVB_REVERSE_VIDEO;
+  attr |= fg << 4;
+  attr |= bg >> 4;
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  make_expect_screen_set_attr(&scr_expect, cursor_pos, strlen(HELLO),
+      attr);
+  cursor_pos.X += strlen(HELLO);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+
+  snprintf(buffer, sizeof(buffer), "%s%dm%s%s%dm%s",
+      CSI, INVERSE, HELLO, CSI, INVERSE_OFF, HELLO);
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
 
