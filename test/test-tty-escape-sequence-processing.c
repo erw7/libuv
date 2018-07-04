@@ -87,11 +87,10 @@ static void initialize_tty(uv_tty_t *tty_out, struct screen *scr) {
   int ttyout_fd;
   CONSOLE_SCREEN_BUFFER_INFO info;
   SMALL_RECT rect;
-
-  uv__set_vterm_state(UV_UNSUPPORTED);
-
   /* Make sure we have an FD that refers to a tty */
   HANDLE handle;
+
+  uv__set_vterm_state(UV_UNSUPPORTED);
 
   handle = CreateFileA("conout$",
                        GENERIC_READ | GENERIC_WRITE,
@@ -171,14 +170,14 @@ static void write_console(uv_tty_t *tty_out, char *src) {
   buf.len = strlen(buf.base);
 
   r = uv_try_write((uv_stream_t*) tty_out, &buf, 1);
-  ASSERT(r == buf.len);
+  ASSERT(r >= 0);
+  ASSERT((unsigned int)r == buf.len);
 }
 
 static void setup_screen(uv_tty_t *tty_out) {
   DWORD length, number_of_written;
   COORD origin;
   CONSOLE_SCREEN_BUFFER_INFO info;
-  SMALL_RECT rect;
   ASSERT(GetConsoleScreenBufferInfo(tty_out->handle, &info));
   length = info.dwSize.X * (info.srWindow.Bottom - info.srWindow.Top + 1);
   origin.X = 0;
@@ -285,16 +284,16 @@ static void capture_screen(uv_tty_t *tty_out, struct screen *scr) {
   scr->default_attr = info.wAttributes;
   ASSERT(ReadConsoleOutputCharacter(tty_out->handle, scr->text, scr->length,
         origin, &length));
-  ASSERT(scr->length == length);
+  ASSERT((unsigned int)scr->length == length);
   ASSERT(ReadConsoleOutputAttribute(tty_out->handle, scr->attributes,
         scr->length, origin, &length));
-  ASSERT(scr->length == length);
+  ASSERT((unsigned int)scr->length == length);
 }
 
 static BOOL compare_screen(struct screen *actual, struct screen *expect) {
   int line, col;
   BOOL result = TRUE;
-  size_t current = 0;
+  int current = 0;
   if (actual->length != expect->length) {
     return FALSE;
   }
@@ -328,7 +327,7 @@ static BOOL compare_screen(struct screen *actual, struct screen *expect) {
 static void free_screen(struct screen scr) {
   free(scr.text);
   free(scr.attributes);
-};
+}
 
 TEST_IMPL(tty_cursor_up) {
   uv_tty_t tty_out;
@@ -1004,7 +1003,7 @@ TEST_IMPL(tty_set_style) {
     {B_WHITE, BACKGROUND_WHITE}
   };
   WORD attr;
-  size_t i, length;
+  int i, length;
 
   uv__set_vterm_state(UV_UNSUPPORTED);
 
@@ -1021,7 +1020,7 @@ TEST_IMPL(tty_set_style) {
     capture_screen(&tty_out, &scr_expect);
     cursor_pos.X = scr_expect.width / 2;
     cursor_pos.Y = scr_expect.height / 2;
-    attr = scr_expect.default_attr & ~FOREGROUND_WHITE | fg_attrs[i][1];
+    attr = (scr_expect.default_attr & ~FOREGROUND_WHITE) | fg_attrs[i][1];
     make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
     make_expect_screen_set_attr(&scr_expect, cursor_pos, strlen(HELLO),
         attr);
@@ -1044,7 +1043,7 @@ TEST_IMPL(tty_set_style) {
     capture_screen(&tty_out, &scr_expect);
     cursor_pos.X = scr_expect.width / 2;
     cursor_pos.Y = scr_expect.height / 2;
-    attr = scr_expect.default_attr & ~BACKGROUND_WHITE | bg_attrs[i][1];
+    attr = (scr_expect.default_attr & ~BACKGROUND_WHITE) | bg_attrs[i][1];
     make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
     make_expect_screen_set_attr(&scr_expect, cursor_pos, strlen(HELLO),
         attr);
