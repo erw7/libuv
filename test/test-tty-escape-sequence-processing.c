@@ -1110,6 +1110,27 @@ TEST_IMPL(tty_set_style) {
   free_screen(scr_expect);
   free_screen(scr_actual);
 
+  /* Set background bright on */
+  capture_screen(&tty_out, &scr_expect);
+  cursor_pos.X = scr_expect.width / 2;
+  cursor_pos.Y = scr_expect.height / 2;
+  set_cursor_position(&tty_out, cursor_pos);
+  attr = scr_expect.default_attr;
+  attr |= BACKGROUND_INTENSITY;
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  make_expect_screen_set_attr(&scr_expect, cursor_pos, strlen(HELLO),
+      attr);
+
+  snprintf(buffer, sizeof(buffer), "%s%dm%s%s%dm",
+      CSI, B_INTENSITY, HELLO, CSI, B_INTENSITY_OFF);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+
+  ASSERT(compare_screen(&scr_actual, &scr_expect));
+  clear_screen(&tty_out, scr_expect);
+  free_screen(scr_expect);
+  free_screen(scr_actual);
+
   set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
 
