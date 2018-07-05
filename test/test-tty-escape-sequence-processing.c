@@ -1309,3 +1309,37 @@ TEST_IMPL(tty_save_restore_cursor_position) {
   MAKE_VALGRIND_HAPPY();
   return 0;
 }
+
+TEST_IMPL(tty_escape_sequence_processing) {
+  uv_tty_t tty_out;
+  uv_loop_t* loop;
+  COORD cursor_pos, cursor_pos_old;
+  char buffer[1024];
+  struct screen scr_actual;
+  struct screen scr_expect;
+
+  uv__set_vterm_state(UV_UNSUPPORTED);
+
+  loop = uv_default_loop();
+
+  initialize_tty(&tty_out, &scr_expect);
+
+  cursor_pos_old = get_cursor_position(&tty_out);
+  capture_screen(&tty_out, &scr_expect);
+  snprintf(buffer, sizeof(buffer), "%s@%s~", CSI, CSI);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  capture_screen(&tty_out, &scr_actual);
+  ASSERT(cursor_pos.X == cursor_pos_old.X);
+  ASSERT(cursor_pos.Y == cursor_pos_old.Y);
+  ASSERT(compare_screen(&scr_actual, &scr_expect));
+
+  set_cursor_to_home(&tty_out);
+  uv_close((uv_handle_t*) &tty_out, NULL);
+
+  uv_run(loop, UV_RUN_DEFAULT);
+
+  MAKE_VALGRIND_HAPPY();
+  return 0;
+}
+
