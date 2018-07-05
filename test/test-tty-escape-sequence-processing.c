@@ -72,6 +72,10 @@
 #define B_WHITE          47
 #define B_DEFAULT        49
 
+#define CURSOR_SIZE_SMALL     25
+#define CURSOR_SIZE_MIDDLE    50
+#define CURSOR_SIZE_LARGE     100
+
 struct screen {
   char *text;
   WORD *attributes;
@@ -144,22 +148,38 @@ static void set_cursor_position(uv_tty_t *tty_out, COORD pos) {
   ASSERT(SetConsoleCursorPosition(handle, pos));
 }
 
+static void set_cursor_size(uv_tty_t *tty_out, DWORD size) {
+  HANDLE handle = tty_out->handle;
+  CONSOLE_CURSOR_INFO info;
+  ASSERT(GetConsoleCursorInfo(handle, &info));
+  info.dwSize = size;
+  ASSERT(SetConsoleCursorInfo(handle, &info));
+}
+
 static void set_cursor_to_home(uv_tty_t *tty_out) {
   COORD origin = {1, 1};
   set_cursor_position(tty_out, origin);
 }
 
-static BOOL is_cursor_visible(uv_tty_t *tty_out) {
+static CONSOLE_CURSOR_INFO get_cursor_info(uv_tty_t *tty_out) {
   HANDLE handle = tty_out->handle;
   CONSOLE_CURSOR_INFO info;
   ASSERT(GetConsoleCursorInfo(handle, &info));
-  return info.bVisible;
+  return info;
+}
+
+static BOOL is_cursor_visible(uv_tty_t *tty_out) {
+  return get_cursor_info(tty_out).bVisible;
 }
 
 static BOOL is_scrolling(uv_tty_t *tty_out, struct screen scr) {
   CONSOLE_SCREEN_BUFFER_INFO info;
   ASSERT(GetConsoleScreenBufferInfo(tty_out->handle, &info));
   return info.srWindow.Top != scr.top;
+}
+
+static DWORD get_cursor_size(uv_tty_t *tty_out) {
+  return get_cursor_info(tty_out).dwSize;
 }
 
 static void write_console(uv_tty_t *tty_out, char *src) {
@@ -964,6 +984,67 @@ TEST_IMPL(tty_erase_line) {
   free_screen(scr_actual);
 
   set_cursor_to_home(&tty_out);
+  uv_close((uv_handle_t*) &tty_out, NULL);
+
+  uv_run(loop, UV_RUN_DEFAULT);
+
+  MAKE_VALGRIND_HAPPY();
+  return 0;
+}
+
+
+TEST_IMPL(tty_set_cursor_shape) {
+  uv_tty_t tty_out;
+  uv_loop_t* loop;
+  DWORD saved_cursor_size;
+  char buffer[1024];
+  struct screen scr;
+
+  uv__set_vterm_state(UV_UNSUPPORTED);
+
+  loop = uv_default_loop();
+
+  initialize_tty(&tty_out, &scr);
+
+  saved_cursor_size = get_cursor_size(&tty_out);
+
+  /* cursor size large if omitted arguments */
+  set_cursor_size(&tty_out, CURSOR_SIZE_MIDDLE);
+  snprintf(buffer, sizeof(buffer), "%s q", CSI);
+  write_console(&tty_out, buffer);
+  ASSERT(get_cursor_size(&tty_out) == CURSOR_SIZE_LARGE);
+
+  /* cursor size large */
+  set_cursor_size(&tty_out, CURSOR_SIZE_MIDDLE);
+  snprintf(buffer, sizeof(buffer), "%s1 q", CSI);
+  write_console(&tty_out, buffer);
+  ASSERT(get_cursor_size(&tty_out) == CURSOR_SIZE_LARGE);
+  set_cursor_size(&tty_out, CURSOR_SIZE_MIDDLE);
+  snprintf(buffer, sizeof(buffer), "%s2 q", CSI);
+  write_console(&tty_out, buffer);
+  ASSERT(get_cursor_size(&tty_out) == CURSOR_SIZE_LARGE);
+
+  /* cursor size small */
+  set_cursor_size(&tty_out, CURSOR_SIZE_MIDDLE);
+  snprintf(buffer, sizeof(buffer), "%s3 q", CSI);
+  write_console(&tty_out, buffer);
+  ASSERT(get_cursor_size(&tty_out) == CURSOR_SIZE_SMALL);
+  set_cursor_size(&tty_out, CURSOR_SIZE_MIDDLE);
+  snprintf(buffer, sizeof(buffer), "%s6 q", CSI);
+  write_console(&tty_out, buffer);
+  ASSERT(get_cursor_size(&tty_out) == CURSOR_SIZE_SMALL);
+
+  /* Nothing occurs with arguments outside valid range */
+  set_cursor_size(&tty_out, CURSOR_SIZE_MIDDLE);
+  snprintf(buffer, sizeof(buffer), "%s7 q", CSI);
+  write_console(&tty_out, buffer);
+  ASSERT(get_cursor_size(&tty_out) == CURSOR_SIZE_MIDDLE);
+
+  /* restore cursor size if arguments is zero */
+  snprintf(buffer, sizeof(buffer), "%s0 q", CSI);
+  write_console(&tty_out, buffer);
+  ASSERT(get_cursor_size(&tty_out) == saved_cursor_size);
+
   uv_close((uv_handle_t*) &tty_out, NULL);
 
   uv_run(loop, UV_RUN_DEFAULT);
