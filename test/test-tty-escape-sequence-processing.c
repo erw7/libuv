@@ -1282,6 +1282,25 @@ TEST_IMPL(tty_save_restore_cursor_position) {
   ASSERT(cursor_pos.X == cursor_pos_old.X);
   ASSERT(cursor_pos.Y == cursor_pos_old.Y);
 
+  cursor_pos_old.X = scr.width / 2;
+  cursor_pos_old.Y = scr.height / 2;
+  set_cursor_position(&tty_out, cursor_pos_old);
+
+  /* save the cursor position */
+  snprintf(buffer, sizeof(buffer), "%s7", ESC);
+  write_console(&tty_out, buffer);
+
+  cursor_pos.X = scr.width / 4;
+  cursor_pos.Y = scr.height / 4;
+  set_cursor_position(&tty_out, cursor_pos);
+
+  /* restore the cursor postion */
+  snprintf(buffer, sizeof(buffer), "%s8", ESC);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(cursor_pos.X == cursor_pos_old.X);
+  ASSERT(cursor_pos.Y == cursor_pos_old.Y);
+
   set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
 
