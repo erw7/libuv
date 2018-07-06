@@ -32,6 +32,8 @@
 
 #define ESC "\033"
 #define CSI ESC "["
+#define ST ESC "\\"
+#define BEL "\x07"
 #define HELLO "Hello"
 
 #define FOREGROUND_WHITE (FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE)
@@ -1292,36 +1294,127 @@ TEST_IMPL(tty_escape_sequence_processing) {
   initialize_tty(&tty_out, &scr_expect);
 
   /* CSI + finaly byte does not output anything */
+  cursor_pos.X = 1;
+  cursor_pos.Y = 1;
+  set_cursor_position(&tty_out, cursor_pos);
   capture_screen(&tty_out, &scr_expect);
-  snprintf(buffer, sizeof(buffer), "%s@%s~", CSI, CSI);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  cursor_pos.X += strlen(HELLO);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  snprintf(buffer, sizeof(buffer), "%s@%s%s~%s", CSI, HELLO, CSI, HELLO);
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
   ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
 
   /* CSI(C1) + finaly byte does not output anything */
+  cursor_pos.X = 1;
+  cursor_pos.Y = 1;
+  set_cursor_position(&tty_out, cursor_pos);
   capture_screen(&tty_out, &scr_expect);
-  snprintf(buffer, sizeof(buffer), "\xC2\x9B@\xC2\x9B~");
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  cursor_pos.X += strlen(HELLO);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  snprintf(buffer, sizeof(buffer), "\xC2\x9B@%s\xC2\x9B~%s", HELLO, HELLO);
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
   ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
 
   /* CSI + intermediate byte + finaly byte does not output anything */
+  cursor_pos.X = 1;
+  cursor_pos.Y = 1;
+  set_cursor_position(&tty_out, cursor_pos);
   capture_screen(&tty_out, &scr_expect);
-  snprintf(buffer, sizeof(buffer), "%s @%s/~", CSI, CSI);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  cursor_pos.X += strlen(HELLO);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  snprintf(buffer, sizeof(buffer), "%s @%s%s/~%s", CSI, HELLO, CSI, HELLO);
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
   ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
 
   /* CSI + parameter byte + finaly byte does not output anything */
+  cursor_pos.X = 1;
+  cursor_pos.Y = 1;
+  set_cursor_position(&tty_out, cursor_pos);
   capture_screen(&tty_out, &scr_expect);
-  snprintf(buffer, sizeof(buffer), "%s0@%s>~%s?~", CSI, CSI, CSI);
+  snprintf(buffer, sizeof(buffer), "%s0@%s%s>~%s%s?~%s",
+      CSI, HELLO, CSI, HELLO, CSI, HELLO);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  cursor_pos.X += strlen(HELLO);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  cursor_pos.X += strlen(HELLO);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
   ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
 
   /* ESC Single-char control does not output anyghing */
+  cursor_pos.X = 1;
+  cursor_pos.Y = 1;
+  set_cursor_position(&tty_out, cursor_pos);
   capture_screen(&tty_out, &scr_expect);
-  snprintf(buffer, sizeof(buffer), "%s @%s/~", CSI, CSI);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  cursor_pos.X += strlen(HELLO);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  snprintf(buffer, sizeof(buffer), "%s @%s%s/~%s", CSI, HELLO, CSI, HELLO);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
+
+  /* Nothing is output from ESC + ^, _, P, ] to BEL or ESC \ */
+  /* Operaging System Command */
+  cursor_pos.X = 1;
+  cursor_pos.Y = 1;
+  set_cursor_position(&tty_out, cursor_pos);
+  capture_screen(&tty_out, &scr_expect);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  snprintf(buffer, sizeof(buffer), "%s]0;%s%s%s", ESC, HELLO, BEL, HELLO);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
+  /* Device Control Sequence */
+  cursor_pos.X = 1;
+  cursor_pos.Y = 1;
+  set_cursor_position(&tty_out, cursor_pos);
+  capture_screen(&tty_out, &scr_expect);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  snprintf(buffer, sizeof(buffer), "%sP$m%s%s", ESC, ST, HELLO);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
+  /* Privacy Message */
+  cursor_pos.X = 1;
+  cursor_pos.Y = 1;
+  set_cursor_position(&tty_out, cursor_pos);
+  capture_screen(&tty_out, &scr_expect);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  snprintf(buffer, sizeof(buffer), "%s^\"%s\\\"%s\"%s%s",
+      ESC, HELLO, HELLO, ST, HELLO);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
+  /* Application Program Command */
+  cursor_pos.X = 1;
+  cursor_pos.Y = 1;
+  set_cursor_position(&tty_out, cursor_pos);
+  capture_screen(&tty_out, &scr_expect);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  snprintf(buffer, sizeof(buffer), "%s_\"%s%s%s\"%s%s",
+      ESC, HELLO, ST, HELLO, BEL, HELLO);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
+
+  /* Ignore double escape */
+  cursor_pos.X = 1;
+  cursor_pos.Y = 1;
+  set_cursor_position(&tty_out, cursor_pos);
+  capture_screen(&tty_out, &scr_expect);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  cursor_pos.X += strlen(HELLO);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  snprintf(buffer, sizeof(buffer), "%s%s@%s%s%s~%s",
+      ESC, CSI, HELLO, ESC, CSI, HELLO);
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
   ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
