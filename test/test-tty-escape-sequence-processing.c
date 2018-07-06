@@ -207,7 +207,7 @@ static void setup_screen(uv_tty_t *tty_out) {
   ASSERT(length == number_of_written);
 }
 
-static void clear_screen(uv_tty_t *tty_out, struct screen scr) {
+static void clear_screen(uv_tty_t *tty_out, struct screen *scr) {
   DWORD length, number_of_written;
   COORD origin;
   CONSOLE_SCREEN_BUFFER_INFO info;
@@ -218,7 +218,7 @@ static void clear_screen(uv_tty_t *tty_out, struct screen scr) {
   FillConsoleOutputCharacterA(tty_out->handle, ' ', length, origin,
       &number_of_written);
   ASSERT(length == number_of_written);
-  FillConsoleOutputAttribute(tty_out->handle, scr.default_attr, length, origin,
+  FillConsoleOutputAttribute(tty_out->handle, scr->default_attr, length, origin,
       &number_of_written);
   ASSERT(length == number_of_written);
 }
@@ -310,7 +310,13 @@ static void capture_screen(uv_tty_t *tty_out, struct screen *scr) {
   ASSERT((unsigned int)scr->length == length);
 }
 
-static BOOL compare_screen(struct screen *actual, struct screen *expect) {
+static void free_screen(struct screen *scr) {
+  free(scr->text);
+  free(scr->attributes);
+}
+
+static BOOL compare_screen(uv_tty_t *tty_out,
+    struct screen *actual, struct screen *expect) {
   int line, col;
   BOOL result = TRUE;
   int current = 0;
@@ -341,12 +347,10 @@ static BOOL compare_screen(struct screen *actual, struct screen *expect) {
     }
     current++;
   }
+  clear_screen(tty_out, expect);
+  free_screen(expect);
+  free_screen(actual);
   return result;
-}
-
-static void free_screen(struct screen scr) {
-  free(scr.text);
-  free(scr.attributes);
 }
 
 TEST_IMPL(tty_cursor_up) {
@@ -844,10 +848,7 @@ TEST_IMPL(tty_erase) {
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
 
-  ASSERT(compare_screen(&scr_actual, &scr_expect));
-  clear_screen(&tty_out, scr_expect);
-  free_screen(scr_expect);
-  free_screen(scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
 
   /* Erase to below(dir = 0) */
   setup_screen(&tty_out);
@@ -859,10 +860,7 @@ TEST_IMPL(tty_erase) {
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
 
-  ASSERT(compare_screen(&scr_actual, &scr_expect));
-  clear_screen(&tty_out, scr_expect);
-  free_screen(scr_expect);
-  free_screen(scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
 
   /* Erase to above */
   dir = 1;
@@ -875,10 +873,7 @@ TEST_IMPL(tty_erase) {
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
 
-  ASSERT(compare_screen(&scr_actual, &scr_expect));
-  clear_screen(&tty_out, scr_expect);
-  free_screen(scr_expect);
-  free_screen(scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
 
   /* Erase All */
   dir = 2;
@@ -891,10 +886,7 @@ TEST_IMPL(tty_erase) {
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
 
-  ASSERT(compare_screen(&scr_actual, &scr_expect));
-  clear_screen(&tty_out, scr_expect);
-  free_screen(scr_expect);
-  free_screen(scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
 
   set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
@@ -934,9 +926,7 @@ TEST_IMPL(tty_erase_line) {
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
 
-  ASSERT(compare_screen(&scr_actual, &scr_expect));
-  free_screen(scr_expect);
-  free_screen(scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
 
   /* Erase to right(dir = 0) */
   setup_screen(&tty_out);
@@ -948,9 +938,7 @@ TEST_IMPL(tty_erase_line) {
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
 
-  ASSERT(compare_screen(&scr_actual, &scr_expect));
-  free_screen(scr_expect);
-  free_screen(scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
 
   /* Erase to Left */
   dir = 1;
@@ -963,9 +951,7 @@ TEST_IMPL(tty_erase_line) {
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
 
-  ASSERT(compare_screen(&scr_actual, &scr_expect));
-  free_screen(scr_expect);
-  free_screen(scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
 
   /* Erase All */
   dir = 2;
@@ -978,10 +964,7 @@ TEST_IMPL(tty_erase_line) {
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
 
-  ASSERT(compare_screen(&scr_actual, &scr_expect));
-  clear_screen(&tty_out, scr_expect);
-  free_screen(scr_expect);
-  free_screen(scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
 
   set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
@@ -1112,10 +1095,7 @@ TEST_IMPL(tty_set_style) {
     write_console(&tty_out, buffer);
     capture_screen(&tty_out, &scr_actual);
 
-    ASSERT(compare_screen(&scr_actual, &scr_expect));
-    clear_screen(&tty_out, scr_expect);
-    free_screen(scr_expect);
-    free_screen(scr_actual);
+    ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
   }
 
   /* Set background color */
@@ -1134,10 +1114,7 @@ TEST_IMPL(tty_set_style) {
     write_console(&tty_out, buffer);
     capture_screen(&tty_out, &scr_actual);
 
-    ASSERT(compare_screen(&scr_actual, &scr_expect));
-    clear_screen(&tty_out, scr_expect);
-    free_screen(scr_expect);
-    free_screen(scr_actual);
+    ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
   }
 
   /* Set foregroud and background color */
@@ -1159,10 +1136,7 @@ TEST_IMPL(tty_set_style) {
     write_console(&tty_out, buffer);
     capture_screen(&tty_out, &scr_actual);
 
-    ASSERT(compare_screen(&scr_actual, &scr_expect));
-    clear_screen(&tty_out, scr_expect);
-    free_screen(scr_expect);
-    free_screen(scr_actual);
+    ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
   }
 
   /* Set foreground bright on */
@@ -1186,10 +1160,7 @@ TEST_IMPL(tty_set_style) {
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
 
-  ASSERT(compare_screen(&scr_actual, &scr_expect));
-  clear_screen(&tty_out, scr_expect);
-  free_screen(scr_expect);
-  free_screen(scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
 
   /* Set background bright on */
   capture_screen(&tty_out, &scr_expect);
@@ -1207,10 +1178,7 @@ TEST_IMPL(tty_set_style) {
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
 
-  ASSERT(compare_screen(&scr_actual, &scr_expect));
-  clear_screen(&tty_out, scr_expect);
-  free_screen(scr_expect);
-  free_screen(scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
 
   /* Inverse */
   capture_screen(&tty_out, &scr_expect);
@@ -1235,10 +1203,7 @@ TEST_IMPL(tty_set_style) {
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &scr_actual);
 
-  ASSERT(compare_screen(&scr_actual, &scr_expect));
-  clear_screen(&tty_out, scr_expect);
-  free_screen(scr_expect);
-  free_screen(scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
 
   set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
