@@ -1097,7 +1097,7 @@ TEST_IMPL(tty_set_style) {
   bg_attrs[0][1] = scr_expect.default_attr & BACKGROUND_WHITE;
 
   /* Set foreground color */
-  length = sizeof(fg_attrs) / sizeof(fg_attrs[0]);
+  length = ARRAY_SIZE(fg_attrs);
   for (i = 0; i < length; i++) {
     capture_screen(&tty_out, &scr_expect);
     cursor_pos.X = scr_expect.width / 2;
@@ -1119,7 +1119,7 @@ TEST_IMPL(tty_set_style) {
   }
 
   /* Set background color */
-  length = sizeof(bg_attrs) / sizeof(bg_attrs[0]);
+  length = ARRAY_SIZE(bg_attrs);
   for (i = 0; i < length; i++) {
     capture_screen(&tty_out, &scr_expect);
     cursor_pos.X = scr_expect.width / 2;
@@ -1141,8 +1141,8 @@ TEST_IMPL(tty_set_style) {
   }
 
   /* Set foregroud and background color */
-  ASSERT(sizeof(fg_attrs) / sizeof(fg_attrs[0]) == sizeof(bg_attrs) / sizeof(bg_attrs[0]));
-  length = sizeof(bg_attrs) / sizeof(bg_attrs[0]);
+  ASSERT(ARRAY_SIZE(fg_attrs) == ARRAY_SIZE(bg_attrs));
+  length = ARRAY_SIZE(bg_attrs);
   for (i = 0; i < length; i++) {
     capture_screen(&tty_out, &scr_expect);
     cursor_pos.X = scr_expect.width / 2;
