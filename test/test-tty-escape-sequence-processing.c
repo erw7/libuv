@@ -1279,9 +1279,11 @@ TEST_IMPL(tty_escape_sequence_processing) {
   uv_tty_t tty_out;
   uv_loop_t* loop;
   COORD cursor_pos, cursor_pos_old;
+  DWORD saved_cursor_size;
   char buffer[1024];
   struct screen scr_actual;
   struct screen scr_expect;
+  int dir;
 
   uv__set_vterm_state(UV_UNSUPPORTED);
 
@@ -1289,15 +1291,104 @@ TEST_IMPL(tty_escape_sequence_processing) {
 
   initialize_tty(&tty_out, &scr_expect);
 
-  cursor_pos_old = get_cursor_position(&tty_out);
+  /* CSI + finaly byte does not output anything */
   capture_screen(&tty_out, &scr_expect);
   snprintf(buffer, sizeof(buffer), "%s@%s~", CSI, CSI);
   write_console(&tty_out, buffer);
-  cursor_pos = get_cursor_position(&tty_out);
   capture_screen(&tty_out, &scr_actual);
-  ASSERT(cursor_pos.X == cursor_pos_old.X);
-  ASSERT(cursor_pos.Y == cursor_pos_old.Y);
-  ASSERT(compare_screen(&scr_actual, &scr_expect));
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
+
+  /* CSI(C1) + finaly byte does not output anything */
+  capture_screen(&tty_out, &scr_expect);
+  snprintf(buffer, sizeof(buffer), "\xC2\x9B@\xC2\x9B~");
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
+
+  /* CSI + intermediate byte + finaly byte does not output anything */
+  capture_screen(&tty_out, &scr_expect);
+  snprintf(buffer, sizeof(buffer), "%s @%s/~", CSI, CSI);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
+
+  /* CSI + parameter byte + finaly byte does not output anything */
+  capture_screen(&tty_out, &scr_expect);
+  snprintf(buffer, sizeof(buffer), "%s0@%s>~%s?~", CSI, CSI, CSI);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
+
+  /* ESC Single-char control does not output anyghing */
+  capture_screen(&tty_out, &scr_expect);
+  snprintf(buffer, sizeof(buffer), "%s @%s/~", CSI, CSI);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
+
+  /* In the case of DECSCUSR, the others are ignored */
+  set_cursor_to_home(&tty_out);
+  snprintf(buffer, sizeof(buffer), "%s%d;%d H",
+      CSI, scr_expect.height / 2, scr_expect.width / 2);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(cursor_pos.X == 1);
+  ASSERT(cursor_pos.Y == 1);
+
+  /* Invalid sequence are ignored */
+  saved_cursor_size = get_cursor_size(&tty_out);
+  set_cursor_size(&tty_out, CURSOR_SIZE_MIDDLE);
+  snprintf(buffer, sizeof(buffer), "%s 1q", CSI);
+  write_console(&tty_out, buffer);
+  ASSERT(get_cursor_size(&tty_out) == CURSOR_SIZE_MIDDLE);
+  snprintf(buffer, sizeof(buffer), "%s 1 q", CSI);
+  write_console(&tty_out, buffer);
+  ASSERT(get_cursor_size(&tty_out) == CURSOR_SIZE_MIDDLE);
+  set_cursor_size(&tty_out, saved_cursor_size);
+
+  /* #1874 2. */
+  snprintf(buffer, sizeof(buffer), "%s??25l", CSI);
+  write_console(&tty_out, buffer);
+  ASSERT(is_cursor_visible(&tty_out));
+  snprintf(buffer, sizeof(buffer), "%s25?l", CSI);
+  write_console(&tty_out, buffer);
+  ASSERT(is_cursor_visible(&tty_out));
+  cursor_pos_old.X = scr_expect.width / 2;
+  cursor_pos_old.Y = scr_expect.height / 2;
+  set_cursor_position(&tty_out, cursor_pos_old);
+  snprintf(buffer, sizeof(buffer), "%s??%d;%df",
+      CSI, scr_expect.height / 4, scr_expect.width / 4);
+  write_console(&tty_out, buffer);
+  cursor_pos = get_cursor_position(&tty_out);
+  ASSERT(cursor_pos.X = cursor_pos_old.X);
+  ASSERT(cursor_pos.Y = cursor_pos_old.Y);
+  set_cursor_to_home(&tty_out);
+
+  /* CSI 25 l does nothing (#1874 4.) */
+  snprintf(buffer, sizeof(buffer), "%s25l", CSI);
+  write_console(&tty_out, buffer);
+  ASSERT(is_cursor_visible(&tty_out));
+
+  /* Unsupported sequences are ignored(#1874 5.) */
+  dir = 2;
+  setup_screen(&tty_out);
+  capture_screen(&tty_out, &scr_expect);
+  set_cursor_position(&tty_out, cursor_pos);
+  snprintf(buffer, sizeof(buffer), "%s?%dJ", CSI, dir);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
+
+  /* Finaly byte immedately after CSI [ are also output(#1874 1.) */
+  cursor_pos.X = scr_expect.width / 2;
+  cursor_pos.Y = scr_expect.height / 2;
+  set_cursor_position(&tty_out, cursor_pos);
+  capture_screen(&tty_out, &scr_expect);
+  make_expect_screen_write(&scr_expect, cursor_pos, HELLO);
+  snprintf(buffer, sizeof(buffer), "%s[%s", CSI, HELLO);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &scr_actual);
+  ASSERT(compare_screen(&tty_out, &scr_actual, &scr_expect));
 
   set_cursor_to_home(&tty_out);
   uv_close((uv_handle_t*) &tty_out, NULL);
