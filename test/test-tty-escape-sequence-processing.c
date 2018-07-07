@@ -132,11 +132,9 @@ static CONSOLE_CURSOR_INFO get_cursor_info(uv_tty_t *tty_out) {
 }
 
 static void set_cursor_size(uv_tty_t *tty_out, DWORD size) {
-  HANDLE handle = tty_out->handle;
-  CONSOLE_CURSOR_INFO info;
-  ASSERT(GetConsoleCursorInfo(handle, &info));
+  CONSOLE_CURSOR_INFO info = get_cursor_info(tty_out);
   info.dwSize = size;
-  ASSERT(SetConsoleCursorInfo(handle, &info));
+  ASSERT(SetConsoleCursorInfo(tty_out->handle, &info));
 }
 
 static DWORD get_cursor_size(uv_tty_t *tty_out) {
