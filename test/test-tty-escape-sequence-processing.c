@@ -1408,6 +1408,26 @@ TEST_IMPL(tty_escape_sequence_processing) {
   capture_screen(&tty_out, &actual);
   ASSERT(compare_screen(&tty_out, &actual, &expect));
 
+  /* Ignored if argument overflow */
+  set_cursor_to_home(&tty_out);
+  snprintf(buffer, sizeof(buffer), "%s1;%dH", CSI, UINT16_MAX + 1);
+  write_console(&tty_out, buffer);
+  get_cursor_position(&tty_out, &cursor_pos);
+  ASSERT(cursor_pos.X == 1);
+  ASSERT(cursor_pos.Y == 1);
+
+  /* Too many argument are ignored */
+  cursor_pos.X = 1;
+  cursor_pos.Y = 1;
+  set_cursor_position(&tty_out, cursor_pos);
+  capture_screen(&tty_out, &expect);
+  make_expect_screen_write(&expect, cursor_pos, HELLO);
+  snprintf(buffer, sizeof(buffer), "%s%d;%d;%d;%d;%dm%s%sm",
+      CSI, F_RED, F_INTENSITY, INVERSE, B_CYAN, B_INTENSITY_OFF, HELLO, CSI);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &actual);
+  ASSERT(compare_screen(&tty_out, &actual, &expect));
+
   /* In the case of DECSCUSR, the others are ignored */
   set_cursor_to_home(&tty_out);
   snprintf(buffer, sizeof(buffer), "%s%d;%d H",
