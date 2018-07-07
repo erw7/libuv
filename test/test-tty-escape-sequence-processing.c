@@ -1264,6 +1264,7 @@ TEST_IMPL(tty_full_reset) {
   struct captured_screen actual, expect;
   COORD cursor_pos;
   DWORD saved_cursor_size;
+  BOOL saved_cursor_visibility;
 
   loop = uv_default_loop();
 
@@ -1279,12 +1280,15 @@ TEST_IMPL(tty_full_reset) {
   saved_cursor_size = get_cursor_size(&tty_out);
   set_cursor_size(&tty_out, saved_cursor_size == CURSOR_SIZE_LARGE ?
       CURSOR_SIZE_SMALL : CURSOR_SIZE_LARGE);
+  saved_cursor_visibility = get_cursor_visibility(&tty_out);
+  set_cursor_visibility(&tty_out, saved_cursor_visibility ? FALSE : TRUE);
   write_console(&tty_out, buffer);
   snprintf(buffer, sizeof(buffer), "%sc", ESC);
   write_console(&tty_out, buffer);
   capture_screen(&tty_out, &actual);
   ASSERT(compare_screen(&tty_out, &actual, &expect));
   ASSERT(get_cursor_size(&tty_out) == saved_cursor_size);
+  ASSERT(get_cursor_visibility(&tty_out) == saved_cursor_visibility);
   ASSERT(actual.si.csbi.srWindow.Top == 0);
 
   terminate_tty(&tty_out);
@@ -1479,10 +1483,10 @@ TEST_IMPL(tty_escape_sequence_processing) {
   /* #1874 2. */
   snprintf(buffer, sizeof(buffer), "%s??25l", CSI);
   write_console(&tty_out, buffer);
-  ASSERT(is_cursor_visible(&tty_out));
+  ASSERT(get_cursor_visibility(&tty_out));
   snprintf(buffer, sizeof(buffer), "%s25?l", CSI);
   write_console(&tty_out, buffer);
-  ASSERT(is_cursor_visible(&tty_out));
+  ASSERT(get_cursor_visibility(&tty_out));
   cursor_pos_old.X = expect.si.width / 2;
   cursor_pos_old.Y = expect.si.height / 2;
   set_cursor_position(&tty_out, cursor_pos_old);
@@ -1497,7 +1501,7 @@ TEST_IMPL(tty_escape_sequence_processing) {
   /* CSI 25 l does nothing (#1874 4.) */
   snprintf(buffer, sizeof(buffer), "%s25l", CSI);
   write_console(&tty_out, buffer);
-  ASSERT(is_cursor_visible(&tty_out));
+  ASSERT(get_cursor_visibility(&tty_out));
 
   /* Unsupported sequences are ignored(#1874 5.) */
   dir = 2;
