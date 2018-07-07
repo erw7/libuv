@@ -1246,6 +1246,46 @@ TEST_IMPL(tty_save_restore_cursor_position) {
   return 0;
 }
 
+
+TEST_IMPL(tty_full_reset) {
+  uv_tty_t tty_out;
+  uv_loop_t* loop;
+  char buffer[1024];
+  struct captured_screen actual, expect;
+  COORD cursor_pos;
+  DWORD saved_cursor_size;
+
+  loop = uv_default_loop();
+
+  initialize_tty(&tty_out);
+
+  capture_screen(&tty_out, &expect);
+  setup_screen(&tty_out);
+  cursor_pos.X = expect.si.width;
+  cursor_pos.Y = expect.si.height;
+  set_cursor_position(&tty_out, cursor_pos);
+  snprintf(buffer, sizeof(buffer), "%s%d;%dm%s",
+      CSI, F_CYAN, B_YELLOW, HELLO);
+  saved_cursor_size = get_cursor_size(&tty_out);
+  set_cursor_size(&tty_out, saved_cursor_size == CURSOR_SIZE_LARGE ?
+      CURSOR_SIZE_SMALL : CURSOR_SIZE_LARGE);
+  write_console(&tty_out, buffer);
+  snprintf(buffer, sizeof(buffer), "%sc", ESC);
+  write_console(&tty_out, buffer);
+  capture_screen(&tty_out, &actual);
+  ASSERT(compare_screen(&tty_out, &actual, &expect));
+  ASSERT(get_cursor_size(&tty_out) == saved_cursor_size);
+  ASSERT(actual.si.csbi.srWindow.Top == 0);
+
+  terminate_tty(&tty_out);
+
+  uv_run(loop, UV_RUN_DEFAULT);
+
+  MAKE_VALGRIND_HAPPY();
+  return 0;
+}
+
+
 TEST_IMPL(tty_escape_sequence_processing) {
   uv_tty_t tty_out;
   uv_loop_t* loop;

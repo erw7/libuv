@@ -65,6 +65,7 @@ TEST_DECLARE   (tty_erase)
 TEST_DECLARE   (tty_erase_line)
 TEST_DECLARE   (tty_set_style)
 TEST_DECLARE   (tty_save_restore_cursor_position)
+TEST_DECLARE   (tty_full_reset)
 TEST_DECLARE   (tty_escape_sequence_processing)
 #endif
 TEST_DECLARE   (tty_file)
@@ -508,6 +509,7 @@ TASK_LIST_START
   TEST_ENTRY  (tty_erase_line)
   TEST_ENTRY  (tty_set_style)
   TEST_ENTRY  (tty_save_restore_cursor_position)
+  TEST_ENTRY  (tty_full_reset)
   TEST_ENTRY  (tty_escape_sequence_processing)
 #endif
   TEST_ENTRY  (tty_file)
