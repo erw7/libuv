@@ -102,50 +102,6 @@ static void get_screen_info(uv_tty_t *tty_out, struct screen_info *si) {
   si->top = si->csbi.srWindow.Top;
 }
 
-static void initialize_tty(uv_tty_t *tty_out) {
-  int r, width, height;
-  int ttyout_fd;
-  CONSOLE_SCREEN_BUFFER_INFO info;
-  SMALL_RECT rect;
-  /* Make sure we have an FD that refers to a tty */
-  HANDLE handle;
-
-  uv__set_vterm_state(UV_UNSUPPORTED);
-
-  handle = CreateFileA("conout$",
-                       GENERIC_READ | GENERIC_WRITE,
-                       FILE_SHARE_READ | FILE_SHARE_WRITE,
-                       NULL,
-                       OPEN_EXISTING,
-                       FILE_ATTRIBUTE_NORMAL,
-                       NULL);
-  ASSERT(handle != INVALID_HANDLE_VALUE);
-
-  ASSERT(GetConsoleScreenBufferInfo(handle, &info));
-  width = info.dwSize.X;
-  height = info.srWindow.Bottom - info.srWindow.Top + 1;
-  rect.Left = 0;
-  rect.Top = info.dwCursorPosition.Y + height > info.dwSize.Y ?
-    info.dwSize.Y - height - 1 : info.dwCursorPosition.Y;
-  rect.Right = width - 1;
-  rect.Bottom = rect.Top + height - 1;
-  ASSERT(SetConsoleWindowInfo(handle, TRUE, &rect));
-
-  ttyout_fd = _open_osfhandle((intptr_t) handle, 0);
-  ASSERT(ttyout_fd >= 0);
-  ASSERT(UV_TTY == uv_guess_handle(ttyout_fd));
-  r = uv_tty_init(uv_default_loop(), tty_out, ttyout_fd, 0);  /* Writable. */
-  ASSERT(r == 0);
-}
-
-static void get_cursor_position(uv_tty_t *tty_out, COORD *cursor_position) {
-  HANDLE handle = tty_out->handle;
-  CONSOLE_SCREEN_BUFFER_INFO info;
-  ASSERT(GetConsoleScreenBufferInfo(handle, &info));
-  cursor_position->X = info.dwCursorPosition.X + 1;
-  cursor_position->Y = info.dwCursorPosition.Y - info.srWindow.Top + 1;
-}
-
 static void set_cursor_position(uv_tty_t *tty_out, COORD pos) {
   HANDLE handle = tty_out->handle;
   CONSOLE_SCREEN_BUFFER_INFO info;
@@ -155,12 +111,12 @@ static void set_cursor_position(uv_tty_t *tty_out, COORD pos) {
   ASSERT(SetConsoleCursorPosition(handle, pos));
 }
 
-static void set_cursor_size(uv_tty_t *tty_out, DWORD size) {
+static void get_cursor_position(uv_tty_t *tty_out, COORD *cursor_position) {
   HANDLE handle = tty_out->handle;
-  CONSOLE_CURSOR_INFO info;
-  ASSERT(GetConsoleCursorInfo(handle, &info));
-  info.dwSize = size;
-  ASSERT(SetConsoleCursorInfo(handle, &info));
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  ASSERT(GetConsoleScreenBufferInfo(handle, &info));
+  cursor_position->X = info.dwCursorPosition.X + 1;
+  cursor_position->Y = info.dwCursorPosition.Y - info.srWindow.Top + 1;
 }
 
 static void set_cursor_to_home(uv_tty_t *tty_out) {
@@ -175,6 +131,18 @@ static CONSOLE_CURSOR_INFO get_cursor_info(uv_tty_t *tty_out) {
   return info;
 }
 
+static void set_cursor_size(uv_tty_t *tty_out, DWORD size) {
+  HANDLE handle = tty_out->handle;
+  CONSOLE_CURSOR_INFO info;
+  ASSERT(GetConsoleCursorInfo(handle, &info));
+  info.dwSize = size;
+  ASSERT(SetConsoleCursorInfo(handle, &info));
+}
+
+static DWORD get_cursor_size(uv_tty_t *tty_out) {
+  return get_cursor_info(tty_out).dwSize;
+}
+
 static BOOL is_cursor_visible(uv_tty_t *tty_out) {
   return get_cursor_info(tty_out).bVisible;
 }
@@ -183,10 +151,6 @@ static BOOL is_scrolling(uv_tty_t *tty_out, struct screen_info si) {
   CONSOLE_SCREEN_BUFFER_INFO info;
   ASSERT(GetConsoleScreenBufferInfo(tty_out->handle, &info));
   return info.srWindow.Top != si.top;
-}
-
-static DWORD get_cursor_size(uv_tty_t *tty_out) {
-  return get_cursor_info(tty_out).dwSize;
 }
 
 static void write_console(uv_tty_t *tty_out, char *src) {
@@ -228,6 +192,27 @@ static void clear_screen(uv_tty_t *tty_out, struct screen_info *si) {
   FillConsoleOutputAttribute(tty_out->handle, si->default_attr, length, origin,
       &number_of_written);
   ASSERT(length == number_of_written);
+}
+
+static void free_screen(struct captured_screen *cs) {
+  free(cs->text);
+  free(cs->attributes);
+}
+
+static void capture_screen(uv_tty_t *tty_out, struct captured_screen *cs) {
+  DWORD length;
+  COORD origin;
+  get_screen_info(tty_out, &(cs->si));
+  origin.X = 0;
+  origin.Y = cs->si.csbi.srWindow.Top;
+  cs->text = (char *)malloc(cs->si.length * sizeof(*cs->text));
+  cs->attributes = (WORD *)malloc(cs->si.length * sizeof(*cs->attributes));
+  ASSERT(ReadConsoleOutputCharacter(tty_out->handle, cs->text, cs->si.length,
+        origin, &length));
+  ASSERT((unsigned int)cs->si.length == length);
+  ASSERT(ReadConsoleOutputAttribute(tty_out->handle, cs->attributes,
+        cs->si.length, origin, &length));
+  ASSERT((unsigned int)cs->si.length == length);
 }
 
 static void make_expect_screen_erase(struct captured_screen *cs,
@@ -296,27 +281,6 @@ static void make_expect_screen_set_attr(struct captured_screen *cs,
   }
 }
 
-static void capture_screen(uv_tty_t *tty_out, struct captured_screen *cs) {
-  DWORD length;
-  COORD origin;
-  get_screen_info(tty_out, &(cs->si));
-  origin.X = 0;
-  origin.Y = cs->si.csbi.srWindow.Top;
-  cs->text = (char *)malloc(cs->si.length * sizeof(*cs->text));
-  cs->attributes = (WORD *)malloc(cs->si.length * sizeof(*cs->attributes));
-  ASSERT(ReadConsoleOutputCharacter(tty_out->handle, cs->text, cs->si.length,
-        origin, &length));
-  ASSERT((unsigned int)cs->si.length == length);
-  ASSERT(ReadConsoleOutputAttribute(tty_out->handle, cs->attributes,
-        cs->si.length, origin, &length));
-  ASSERT((unsigned int)cs->si.length == length);
-}
-
-static void free_screen(struct captured_screen *cs) {
-  free(cs->text);
-  free(cs->attributes);
-}
-
 static BOOL compare_screen(uv_tty_t *tty_out,
     struct captured_screen *actual, struct captured_screen *expect) {
   int line, col;
@@ -353,6 +317,35 @@ static BOOL compare_screen(uv_tty_t *tty_out,
   free_screen(expect);
   free_screen(actual);
   return result;
+}
+
+static void initialize_tty(uv_tty_t *tty_out) {
+  int r;
+  int ttyout_fd;
+  /* Make sure we have an FD that refers to a tty */
+  HANDLE handle;
+
+  uv__set_vterm_state(UV_UNSUPPORTED);
+
+  handle = CreateConsoleScreenBuffer(
+                       GENERIC_READ | GENERIC_WRITE,
+                       FILE_SHARE_READ | FILE_SHARE_WRITE,
+                       NULL,
+                       CONSOLE_TEXTMODE_BUFFER,
+                       NULL);
+  ASSERT(handle != INVALID_HANDLE_VALUE);
+
+  ttyout_fd = _open_osfhandle((intptr_t) handle, 0);
+  ASSERT(ttyout_fd >= 0);
+  ASSERT(UV_TTY == uv_guess_handle(ttyout_fd));
+  r = uv_tty_init(uv_default_loop(), tty_out, ttyout_fd, 0);  /* Writable. */
+  ASSERT(r == 0);
+}
+
+static void terminate_tty(uv_tty_t *tty_out) {
+  set_cursor_to_home(tty_out);
+  uv_close((uv_handle_t*)tty_out, NULL);
+  FreeConsole();
 }
 
 TEST_IMPL(tty_cursor_up) {
@@ -397,8 +390,7 @@ TEST_IMPL(tty_cursor_up) {
   ASSERT(cursor_pos_old.X == cursor_pos.X);
   ASSERT(!is_scrolling(&tty_out, si));
 
-  set_cursor_to_home(&tty_out);
-  uv_close((uv_handle_t*) &tty_out, NULL);
+  terminate_tty(&tty_out);
 
   uv_run(loop, UV_RUN_DEFAULT);
 
@@ -449,8 +441,7 @@ TEST_IMPL(tty_cursor_down) {
   ASSERT(cursor_pos_old.X == cursor_pos.X);
   ASSERT(!is_scrolling(&tty_out, si));
 
-  set_cursor_to_home(&tty_out);
-  uv_close((uv_handle_t*) &tty_out, NULL);
+  terminate_tty(&tty_out);
 
   uv_run(loop, UV_RUN_DEFAULT);
 
@@ -511,8 +502,7 @@ TEST_IMPL(tty_cursor_forward) {
   ASSERT(cursor_pos_old.X == cursor_pos.X);
   ASSERT(!is_scrolling(&tty_out, si));
 
-  set_cursor_to_home(&tty_out);
-  uv_close((uv_handle_t*) &tty_out, NULL);
+  terminate_tty(&tty_out);
 
   uv_run(loop, UV_RUN_DEFAULT);
 
@@ -573,8 +563,7 @@ TEST_IMPL(tty_cursor_back) {
   ASSERT(1 == cursor_pos.X);
   ASSERT(!is_scrolling(&tty_out, si));
 
-  set_cursor_to_home(&tty_out);
-  uv_close((uv_handle_t*) &tty_out, NULL);
+  terminate_tty(&tty_out);
 
   uv_run(loop, UV_RUN_DEFAULT);
 
@@ -627,8 +616,7 @@ TEST_IMPL(tty_cursor_next_line) {
   ASSERT(1 == cursor_pos.X);
   ASSERT(!is_scrolling(&tty_out, si));
 
-  set_cursor_to_home(&tty_out);
-  uv_close((uv_handle_t*) &tty_out, NULL);
+  terminate_tty(&tty_out);
 
   uv_run(loop, UV_RUN_DEFAULT);
 
@@ -681,8 +669,7 @@ TEST_IMPL(tty_cursor_previous_line) {
   ASSERT(1 == cursor_pos.X);
   ASSERT(!is_scrolling(&tty_out, si));
 
-  set_cursor_to_home(&tty_out);
-  uv_close((uv_handle_t*) &tty_out, NULL);
+  terminate_tty(&tty_out);
 
   uv_run(loop, UV_RUN_DEFAULT);
 
@@ -730,8 +717,7 @@ TEST_IMPL(tty_cursor_horizontal_move_absolute) {
   ASSERT(si.width == cursor_pos.X);
   ASSERT(cursor_pos_old.Y == cursor_pos.Y);
 
-  set_cursor_to_home(&tty_out);
-  uv_close((uv_handle_t*) &tty_out, NULL);
+  terminate_tty(&tty_out);
 
   uv_run(loop, UV_RUN_DEFAULT);
 
@@ -789,8 +775,7 @@ TEST_IMPL(tty_cursor_move_absolute) {
   ASSERT(si.height == cursor_pos.Y);
   ASSERT(!is_scrolling(&tty_out, si));
 
-  set_cursor_to_home(&tty_out);
-  uv_close((uv_handle_t*) &tty_out, NULL);
+  terminate_tty(&tty_out);
 
   uv_run(loop, UV_RUN_DEFAULT);
 
@@ -820,7 +805,7 @@ TEST_IMPL(tty_hide_show_cursor) {
   write_console(&tty_out, buffer);
   ASSERT(is_cursor_visible(&tty_out));
 
-  uv_close((uv_handle_t*) &tty_out, NULL);
+  terminate_tty(&tty_out);
 
   uv_run(loop, UV_RUN_DEFAULT);
 
@@ -897,8 +882,7 @@ TEST_IMPL(tty_erase) {
 
   ASSERT(compare_screen(&tty_out, &actual, &expect));
 
-  set_cursor_to_home(&tty_out);
-  uv_close((uv_handle_t*) &tty_out, NULL);
+  terminate_tty(&tty_out);
 
   uv_run(loop, UV_RUN_DEFAULT);
 
@@ -975,8 +959,7 @@ TEST_IMPL(tty_erase_line) {
 
   ASSERT(compare_screen(&tty_out, &actual, &expect));
 
-  set_cursor_to_home(&tty_out);
-  uv_close((uv_handle_t*) &tty_out, NULL);
+  terminate_tty(&tty_out);
 
   uv_run(loop, UV_RUN_DEFAULT);
 
@@ -1036,7 +1019,7 @@ TEST_IMPL(tty_set_cursor_shape) {
   write_console(&tty_out, buffer);
   ASSERT(get_cursor_size(&tty_out) == saved_cursor_size);
 
-  uv_close((uv_handle_t*) &tty_out, NULL);
+  terminate_tty(&tty_out);
 
   uv_run(loop, UV_RUN_DEFAULT);
 
@@ -1214,8 +1197,7 @@ TEST_IMPL(tty_set_style) {
 
   ASSERT(compare_screen(&tty_out, &actual, &expect));
 
-  set_cursor_to_home(&tty_out);
-  uv_close((uv_handle_t*) &tty_out, NULL);
+  terminate_tty(&tty_out);
 
   uv_run(loop, UV_RUN_DEFAULT);
 
@@ -1276,8 +1258,7 @@ TEST_IMPL(tty_save_restore_cursor_position) {
   ASSERT(cursor_pos.X == cursor_pos_old.X);
   ASSERT(cursor_pos.Y == cursor_pos_old.Y);
 
-  set_cursor_to_home(&tty_out);
-  uv_close((uv_handle_t*) &tty_out, NULL);
+  terminate_tty(&tty_out);
 
   uv_run(loop, UV_RUN_DEFAULT);
 
@@ -1491,8 +1472,7 @@ TEST_IMPL(tty_escape_sequence_processing) {
   capture_screen(&tty_out, &actual);
   ASSERT(compare_screen(&tty_out, &actual, &expect));
 
-  set_cursor_to_home(&tty_out);
-  uv_close((uv_handle_t*) &tty_out, NULL);
+  terminate_tty(&tty_out);
 
   uv_run(loop, UV_RUN_DEFAULT);
 
