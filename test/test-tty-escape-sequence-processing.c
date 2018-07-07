@@ -141,7 +141,13 @@ static DWORD get_cursor_size(uv_tty_t *tty_out) {
   return get_cursor_info(tty_out).dwSize;
 }
 
-static BOOL is_cursor_visible(uv_tty_t *tty_out) {
+static void set_cursor_visibility(uv_tty_t *tty_out, BOOL visible) {
+  CONSOLE_CURSOR_INFO info = get_cursor_info(tty_out);
+  info.bVisible = visible;
+  ASSERT(SetConsoleCursorInfo(tty_out->handle, &info));
+}
+
+static BOOL get_cursor_visibility(uv_tty_t *tty_out) {
   return get_cursor_info(tty_out).bVisible;
 }
 
@@ -778,21 +784,27 @@ TEST_IMPL(tty_hide_show_cursor) {
   uv_tty_t tty_out;
   uv_loop_t* loop;
   char buffer[1024];
+  BOOL saved_cursor_visibility;
 
   loop = uv_default_loop();
 
   initialize_tty(&tty_out);
 
+  saved_cursor_visibility = get_cursor_visibility(&tty_out);
+
   /* Hide the cursor */
+  set_cursor_visibility(&tty_out, TRUE);
   snprintf(buffer, sizeof(buffer), "%s?25l", CSI);
   write_console(&tty_out, buffer);
-  ASSERT(!is_cursor_visible(&tty_out));
+  ASSERT(!get_cursor_visibility(&tty_out));
 
   /* Show the cursor */
+  set_cursor_visibility(&tty_out, FALSE);
   snprintf(buffer, sizeof(buffer), "%s?25h", CSI);
   write_console(&tty_out, buffer);
-  ASSERT(is_cursor_visible(&tty_out));
+  ASSERT(get_cursor_visibility(&tty_out));
 
+  set_cursor_visibility(&tty_out, saved_cursor_visibility);
   terminate_tty(&tty_out);
 
   uv_run(loop, UV_RUN_DEFAULT);
