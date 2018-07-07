@@ -579,8 +579,6 @@ TEST_IMPL(tty_cursor_next_line) {
   char buffer[1024];
   struct screen_info si;
 
-  uv__set_vterm_state(UV_UNSUPPORTED);
-
   loop = uv_default_loop();
 
   initialize_tty(&tty_out);
@@ -631,8 +629,6 @@ TEST_IMPL(tty_cursor_previous_line) {
   COORD cursor_pos, cursor_pos_old;
   char buffer[1024];
   struct screen_info si;
-
-  uv__set_vterm_state(UV_UNSUPPORTED);
 
   loop = uv_default_loop();
 
@@ -685,8 +681,6 @@ TEST_IMPL(tty_cursor_horizontal_move_absolute) {
   char buffer[1024];
   struct screen_info si;
 
-  uv__set_vterm_state(UV_UNSUPPORTED);
-
   loop = uv_default_loop();
 
   initialize_tty(&tty_out);
@@ -732,8 +726,6 @@ TEST_IMPL(tty_cursor_move_absolute) {
   COORD cursor_pos;
   char buffer[1024];
   struct screen_info si;
-
-  uv__set_vterm_state(UV_UNSUPPORTED);
 
   loop = uv_default_loop();
 
@@ -789,8 +781,6 @@ TEST_IMPL(tty_hide_show_cursor) {
   uv_loop_t* loop;
   char buffer[1024];
 
-  uv__set_vterm_state(UV_UNSUPPORTED);
-
   loop = uv_default_loop();
 
   initialize_tty(&tty_out);
@@ -822,8 +812,6 @@ TEST_IMPL(tty_erase) {
   char buffer[1024];
   struct captured_screen actual;
   struct captured_screen expect;
-
-  uv__set_vterm_state(UV_UNSUPPORTED);
 
   loop = uv_default_loop();
 
@@ -900,8 +888,6 @@ TEST_IMPL(tty_erase_line) {
   struct captured_screen actual;
   struct captured_screen expect;
 
-  uv__set_vterm_state(UV_UNSUPPORTED);
-
   loop = uv_default_loop();
 
   initialize_tty(&tty_out);
@@ -973,8 +959,6 @@ TEST_IMPL(tty_set_cursor_shape) {
   uv_loop_t* loop;
   DWORD saved_cursor_size;
   char buffer[1024];
-
-  uv__set_vterm_state(UV_UNSUPPORTED);
 
   loop = uv_default_loop();
 
@@ -1060,8 +1044,6 @@ TEST_IMPL(tty_set_style) {
   };
   WORD attr;
   int i, length;
-
-  uv__set_vterm_state(UV_UNSUPPORTED);
 
   loop = uv_default_loop();
 
@@ -1213,8 +1195,6 @@ TEST_IMPL(tty_save_restore_cursor_position) {
   char buffer[1024];
   struct screen_info si;
 
-  uv__set_vterm_state(UV_UNSUPPORTED);
-
   loop = uv_default_loop();
 
   initialize_tty(&tty_out);
@@ -1275,8 +1255,6 @@ TEST_IMPL(tty_escape_sequence_processing) {
   struct captured_screen actual;
   struct captured_screen expect;
   int dir;
-
-  uv__set_vterm_state(UV_UNSUPPORTED);
 
   loop = uv_default_loop();
 
