@@ -2361,66 +2361,78 @@ int uv_tty_reset_mode(void) {
   return 0;
 }
 
+static BOOL uv__is_end_with(WCHAR* path, WCHAR* file, size_t path_lenght) {
+  size_t file_length = wcslen(file);
+  WCHAR* comp_position;
+  if (path_lenght < file_length) {
+    return FALSE;
+  }
+  comp_position = path + path_lenght - file_length;
+  if (!wcsncmp(comp_position, file, file_length)) {
+    return TRUE;
+  }
+  return FALSE;
+}
+
 static int uv__guess_tty(HANDLE handle)
 {
-  char env_var[5];
   DWORD dwMode = 0;
-  DWORD env_length;
   int result = UV_TTY_NONE;
+  HANDLE process_handle = GetCurrentProcess();
 
   if (handle == INVALID_HANDLE_VALUE || !GetConsoleMode(handle, &dwMode)) {
     return result;
   }
 
-  env_length = GetEnvironmentVariableA("ConEmuANSI", env_var, sizeof(env_var));
-  if (env_length == 2 && !strncmp(env_var, "ON", 2)) {
-    HANDLE process_handle = GetCurrentProcess();
+  while(1) {
+    NTSTATUS status;
+    PROCESS_BASIC_INFORMATION pbi;
+    ULONG return_length;
+    char env_var[5];
+    DWORD env_length;
+    WCHAR parent_file_name[MAX_PATH];
+    DWORD parent_file_name_length;
+    WCHAR* conemu_file_names[] = { L"\\ConEmu.exe", L"\\ConEmu64.exe" };
+    WCHAR* winpty_agent_file_name = L"\\winpty-agent.exe";
+    unsigned int i;
 
-    while(1) {
-      NTSTATUS status;
-      PROCESS_BASIC_INFORMATION pbi;
-      ULONG return_length;
-      WCHAR parent_file_name[MAX_PATH];
-      DWORD parent_file_name_length;
-      WCHAR* conemu_file_names[] = { L"\\ConEmu.exe", L"\\ConEmu64.exe" };
-      unsigned int i;
+    status = pNtQueryInformationProcess(process_handle,
+        ProcessBasicInformation,
+        &pbi,
+        sizeof(pbi),
+        &return_length);
+    CloseHandle(process_handle);
+    if (!NT_SUCCESS(status)) {
+      break;
+    }
 
-      status = pNtQueryInformationProcess(process_handle,
-                                          ProcessBasicInformation,
-                                          &pbi,
-                                          sizeof(pbi),
-                                          &return_length);
-      CloseHandle(process_handle);
-      if (!NT_SUCCESS(status)) {
-        break;
-      }
+    process_handle = OpenProcess(PROCESS_QUERY_INFORMATION,
+        FALSE,
+        pbi.InheritedFromUniqueProcessId);
+    if (!process_handle) {
+      break;
+    }
 
-      process_handle = OpenProcess(PROCESS_QUERY_INFORMATION,
-                                   FALSE,
-                                   pbi.InheritedFromUniqueProcessId);
-      if (!process_handle) {
-        break;
-      }
+    parent_file_name_length =
+      GetProcessImageFileNameW(
+          process_handle, parent_file_name,
+          ARRAY_SIZE(parent_file_name));
+    if (!parent_file_name_length) {
+      break;
+    }
 
-      parent_file_name_length =
-        GetProcessImageFileNameW(
-            process_handle, parent_file_name,
-            ARRAY_SIZE(parent_file_name));
-      if (!parent_file_name_length) {
-        break;
-      }
+    if (uv__is_end_with(parent_file_name,
+                        winpty_agent_file_name,
+                        parent_file_name_length)) {
+      return result | UV_TTY_LEGACY;
+    }
 
+    env_length = GetEnvironmentVariableA("ConEmuANSI", env_var, sizeof(env_var));
+    if (env_length == 2 && !strncmp(env_var, "ON", 2)) {
       for (i = 0; i < sizeof(conemu_file_names) / sizeof(WCHAR*); i++) {
-        size_t conemu_file_name_length = wcslen(conemu_file_names[i]);
-        WCHAR* comp_position;
-        if (parent_file_name_length < conemu_file_name_length) {
-          continue;
-        }
-        comp_position = parent_file_name + parent_file_name_length
-          - conemu_file_name_length;
-        if (!wcsncmp(comp_position,
-                     conemu_file_names[i],
-                     conemu_file_name_length)) {
+        if (uv__is_end_with(parent_file_name,
+                            conemu_file_names[i],
+                            parent_file_name_length)) {
           result |= UV_TTY_CONEMU;
           break;
         }
