@@ -138,7 +138,8 @@ static int uv_tty_virtual_width = -1;
  * handle signalling SIGWINCH
  */
 
-static HANDLE uv__tty_console_handle = INVALID_HANDLE_VALUE;
+static HANDLE uv__tty_console_output_handle = INVALID_HANDLE_VALUE;
+static HANDLE uv__tty_console_input_handle = INVALID_HANDLE_VALUE;
 static int uv__tty_console_height = -1;
 static int uv__tty_console_width = -1;
 
@@ -180,18 +181,25 @@ static int uv__tty_mouse_enc = UV_TTY_MOUSE_ENC_X10;
 void uv_console_init(void) {
   if (uv_sem_init(&uv_tty_output_lock, 1))
     abort();
-  uv__tty_console_handle = CreateFileW(L"CONOUT$",
+  uv__tty_console_output_handle = CreateFileW(L"CONOUT$",
                                        GENERIC_READ | GENERIC_WRITE,
                                        FILE_SHARE_WRITE,
                                        0,
                                        OPEN_EXISTING,
                                        0,
                                        0);
-  if (uv__tty_console_handle != NULL) {
+  if (uv__tty_console_output_handle != NULL) {
     QueueUserWorkItem(uv__tty_console_resize_message_loop_thread,
                       NULL,
                       WT_EXECUTELONGFUNCTION);
   }
+  uv__tty_console_input_handle = CreateFileW(L"CONIN$",
+                                       GENERIC_READ | GENERIC_WRITE,
+                                       FILE_SHARE_READ,
+                                       0,
+                                       OPEN_EXISTING,
+                                       0,
+                                       0);
 }
 
 
@@ -372,10 +380,10 @@ int uv_tty_set_mode(uv_tty_t* tty, uv_tty_mode_t mode) {
 
   switch (mode) {
     case UV_TTY_MODE_NORMAL:
-      flags = ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT | ENABLE_MOUSE_INPUT;
+      flags = ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT;
       break;
     case UV_TTY_MODE_RAW:
-      flags = ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT;
+      flags = ENABLE_WINDOW_INPUT;
       break;
     case UV_TTY_MODE_IO:
       return UV_ENOTSUP;
@@ -706,7 +714,7 @@ static void decode_mouse_event(uv_tty_t* handle) {
   static DWORD old_button = -1, old_Cx = -1, old_Cy = -1;
   CONSOLE_SCREEN_BUFFER_INFO info;
   Cx = MEV.dwMousePosition.X + (uv__tty_mouse_enc ? 1 : 33);
-  if (!GetConsoleScreenBufferInfo(uv_tty_output_handle, &info)) {
+  if (!GetConsoleScreenBufferInfo(uv__tty_console_output_handle, &info)) {
     return;
   }
   Cy = MEV.dwMousePosition.Y - info.srWindow.Top + (uv__tty_mouse_enc ? 1 : 33);
@@ -1784,28 +1792,28 @@ static int uv_tty_set_mouse_tracking_mode(uv_tty_t* handle,
                                          int mode,
                                          BOOL enable,
                                          DWORD* error) {
-  // static DWORD dwSavedMode = 0;
-  // DWORD dwMode;
-  // if (!GetConsoleMode(handle->handle, &dwMode)) {
-  //   uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_NONE;
-  //   *error = GetLastError();
-  //   return -1;
-  // }
-  //
-  // if (!dwSavedMode) {
-  //   dwSavedMode = dwMode;
-  // }
-  // if (enable) {
-  //   dwMode |= (ENABLE_MOUSE_INPUT | ENABLE_EXTENDED_FLAGS | ENABLE_WINDOW_INPUT);
-  // } else {
-  //   dwMode = dwSavedMode;
-  // }
-  //
-  // if (!SetConsoleMode(handle->handle, dwMode)) {
-  //   uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_NONE;
-  //   *error = GetLastError();
-  //   return -1;
-  // }
+  static DWORD dwSavedMode = 0;
+  DWORD dwMode;
+  if (!GetConsoleMode(uv__tty_console_input_handle, &dwMode)) {
+    uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_NONE;
+    *error = GetLastError();
+    return -1;
+  }
+
+  if (!dwSavedMode) {
+    dwSavedMode = dwMode;
+  }
+  if (enable) {
+    dwMode |= (ENABLE_MOUSE_INPUT | ENABLE_EXTENDED_FLAGS | ENABLE_WINDOW_INPUT);
+  } else {
+    dwMode = dwSavedMode;
+  }
+
+  if (!SetConsoleMode(uv__tty_console_input_handle, dwMode)) {
+    uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_NONE;
+    *error = GetLastError();
+    return -1;
+  }
 
   if (enable) {
     switch (mode) {
@@ -2680,7 +2688,7 @@ static DWORD WINAPI uv__tty_console_resize_message_loop_thread(void* param) {
   CONSOLE_SCREEN_BUFFER_INFO sb_info;
   MSG msg;
 
-  if (!GetConsoleScreenBufferInfo(uv__tty_console_handle, &sb_info))
+  if (!GetConsoleScreenBufferInfo(uv__tty_console_output_handle, &sb_info))
     return 0;
 
   uv__tty_console_width = sb_info.dwSize.X;
@@ -2715,7 +2723,7 @@ static void CALLBACK uv__tty_console_resize_event(HWINEVENTHOOK hWinEventHook,
   CONSOLE_SCREEN_BUFFER_INFO sb_info;
   int width, height;
 
-  if (!GetConsoleScreenBufferInfo(uv__tty_console_handle, &sb_info))
+  if (!GetConsoleScreenBufferInfo(uv__tty_console_output_handle, &sb_info))
     return;
 
   width = sb_info.dwSize.X;
