@@ -143,6 +143,7 @@
         'test-timer-from-check.c',
         'test-timer.c',
         'test-tty-duplicate-key.c',
+        'test-tty-mouse-tracking.c',
         'test-tty.c',
         'test-udp-alloc-cb-fail.c',
         'test-udp-bind.c',
