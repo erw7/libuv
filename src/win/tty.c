@@ -796,23 +796,36 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
       }
       records_left--;
 
-      if (handle->tty.rd.last_input_record.EventType == MOUSE_EVENT  &&
+      /* Ignore other events that are not key or mouse events. */
+      if (handle->tty.rd.last_input_record.EventType != KEY_EVENT &&
+          handle->tty.rd.last_input_record.EventType != MOUSE_EVENT) {
+        continue;
+      }
+
+      /* See https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h2-Mouse-Tracking */
+      if (handle->tty.rd.last_input_record.EventType == MOUSE_EVENT &&
           uv__tty_mouse_mode) {
         COORD pos;
-        char button, fbyte = 'M', c;
+        char button, c, fbyte = 'M';
         static COORD old_pos = {-1, -1};
         static char old_button = -1;
+        static DWORD number_of_buttons = 0;
         int i;
 
         uv_sem_wait(&uv_tty_output_lock);
+        if (number_of_buttons == 0 &&
+            !GetNumberOfConsoleMouseButtons(&number_of_buttons)) {
+          number_of_buttons = 2;
+        }
         button = old_button;
 
         switch (MEV.dwEventFlags) {
           case 0:
-            /* release mouse button */
+            /* release mouse button event */
             if ((MEV.dwButtonState & ((1 << 5) - 1)) == 0) {
+              /* Ignore if X10 cmpatible mode or button is not pressed */
               if (old_button == -1 || uv__tty_mouse_mode == UV_TTY_MOUSE_MODE_X10) {
-                old_button = -1;
+                old_button = -0;
                 uv_sem_post(&uv_tty_output_lock);
                 continue;
               }
@@ -820,11 +833,11 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
               if (uv__tty_mouse_enc == UV_TTY_MOUSE_ENC_SGR) {
                 fbyte = 'm';
               } else {
-                button = 3;
+                button = 4;
               }
               old_button = -1;
             } else {
-              /* press mouse button */
+              /* press mouse button event */
               if (button !=  -1) {
                 uv_sem_post(&uv_tty_output_lock);
                 continue;
@@ -833,10 +846,13 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
                 case FROM_LEFT_1ST_BUTTON_PRESSED:
                   button = 0;
                   break;
-                case RIGHTMOST_BUTTON_PRESSED:
+                case FROM_LEFT_2ND_BUTTON_PRESSED:
                   button = 1;
+                case RIGHTMOST_BUTTON_PRESSED:
+                  button = number_of_buttons > 2 ? 2 : 1;
                   break;
                 default:
+                  /* Ignore because does not support more than 4 buttons */
                   old_button = -1;
                   uv_sem_post(&uv_tty_output_lock);
                   continue;
@@ -846,10 +862,17 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
             pos = uv_tty_make_mouse_coord(MEV);
             break;
           case MOUSE_MOVED:
-            if (uv__tty_mouse_mode == UV_TTY_MOUSE_MODE_NORMAL || old_button ==  -1) {
+            /* Ignore moved events in X10 compatibility mode and Normal
+            * tracking mode.
+            * Ignore moved events if button is not pressed in Button-event
+            * tracking mode. */
+            if (uv__tty_mouse_mode == UV_TTY_MOUSE_MODE_X10 ||
+                uv__tty_mouse_mode == UV_TTY_MOUSE_MODE_NORMAL ||
+                (uv__tty_mouse_mode == UV_TTY_MOUSE_MODE_BT && old_button == -1)) {
               uv_sem_post(&uv_tty_output_lock);
               continue;
             }
+            /* Ignore moved events that occurred in same cell as before */
             pos = uv_tty_make_mouse_coord(MEV);
             if (pos.X == old_pos.Y && pos.Y == old_pos.Y) {
               uv_sem_post(&uv_tty_output_lock);
@@ -881,45 +904,57 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
         }
 
         if (uv__tty_mouse_enc != UV_TTY_MOUSE_ENC_SGR) {
-          button += 32;
+          /* Add ' '(32) to convert it to printable characters */
+          button += ' ';
         }
 
         switch (uv__tty_mouse_enc) {
           case UV_TTY_MOUSE_ENC_X10:
+            /* CSI M CbCxCy */
             snprintf(handle->tty.rd.last_key, 32, "\033[%c%c%c%c",
-                fbyte, (char)button, (char)pos.X, (char)pos.Y);
+                fbyte, button, (unsigned char)pos.X, (unsigned char)pos.Y);
             break;
           case UV_TTY_MOUSE_ENC_EXT:
+            /* CSI M CbCxCy */
             snprintf(handle->tty.rd.last_key, 32, "\033[%c%c", fbyte, button);
             i = strnlen(handle->tty.rd.last_key, 32);
             if (pos.X < 256) {
-              handle->tty.rd.last_key[i] = pos.X;
+              /* ASCII */
+              handle->tty.rd.last_key[i] = (unsigned char)pos.X;
               i++;
             } else {
-              c = 0xC0 & ((pos.X & 0x7FF) >> 6);
+              /* Encode upper 5bits to UTF-8 */
+              c = (unsigned char)(0xC0 + ((pos.X >> 6) & 0x1F));
               handle->tty.rd.last_key[i] = c;
               i++;
-              c = 0x80 & (pos.X & 0x3F);
+              /* Encode lower 6bits to UTF-8 */
+              c = (unsigned char)(0x80 + (pos.X & 0x3F));
               handle->tty.rd.last_key[i] = c;
               i++;
             }
             if (pos.Y < 256) {
-              handle->tty.rd.last_key[i] = pos.Y;
+              /* ASCII */
+              handle->tty.rd.last_key[i] = (unsigned char)pos.Y;
               i++;
             } else {
-              c = 0xC0 & ((pos.Y & 0x7FF) >> 6);
+              /* Encode upper 5bits to UTF-8 */
+              c = (unsigned char)(0xC0 + ((pos.Y >> 6) & 0x1F));
               handle->tty.rd.last_key[i] = c;
               i++;
-              c = 0x80 & (pos.Y & 0x3F);
+              /* Encode lower 6bits to UTF-8 */
+              c = (unsigned char)(0x80 + (pos.Y & 0x3F));
               handle->tty.rd.last_key[i] = c;
               i++;
             }
+            handle->tty.rd.last_key[i] = '\0';
             break;
           case UV_TTY_MOUSE_ENC_SGR:
+            /* CSI  < Cb ; Cx ; Cy M or m */
             snprintf(handle->tty.rd.last_key, 32, "\033[<%d;%d;%d%c",
                 button, pos.X, pos.Y, fbyte);
             break;
           case UV_TTY_MOUSE_ENC_URXVT:
+            /* CSI Cb ; Cx ; Cb M */
             snprintf(handle->tty.rd.last_key, 32, "\033[%d;%d;%d%c",
                 button, pos.X, pos.Y, fbyte);
             break;
@@ -929,11 +964,6 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
         handle->tty.rd.last_key_offset = 0;
 
         uv_sem_post(&uv_tty_output_lock);
-        continue;
-      }
-
-      /* Ignore other events that are not key or resize events. */
-      if (handle->tty.rd.last_input_record.EventType != KEY_EVENT) {
         continue;
       }
 
