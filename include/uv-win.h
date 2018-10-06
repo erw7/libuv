@@ -503,7 +503,7 @@ RB_HEAD(uv_timer_tree_s, uv_timer_s);
       /* eol conversion state */                                              \
       unsigned char previous_eol;                                             \
       /* ansi parser state */                                                 \
-      unsigned char ansi_parser_state;                                        \
+      unsigned short ansi_parser_state;                                       \
       unsigned char ansi_csi_argc;                                            \
       unsigned short ansi_csi_argv[4];                                        \
       COORD saved_position;                                                   \
@@ -649,9 +649,11 @@ RB_HEAD(uv_timer_tree_s, uv_timer_s);
 #define X_OK 1
 #endif
 
-#define UV_TTY_NONE          0
-#define UV_TTY_VTP           0x02
-#define UV_TTY_LEGACY        0x04
-#define UV_TTY_CONEMU        0x08
+/* Set uv__vterm_state reggardless of console type function */
+typedef enum {
+  UV_SUPPORTED,
+  UV_UNCHECKED,
+  UV_UNSUPPORTED
+} uv_vtermstate_t;
 
-UV_EXTERN int uv_guess_tty(uv_file fd);
+UV_EXTERN void uv_set_vterm_state(uv_vtermstate_t state);
