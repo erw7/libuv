@@ -56,6 +56,7 @@
 #define ANSI_BACKSLASH_SEEN   0x0080
 #define ANSI_EXTENSION        0x0100
 #define ANSI_DECSCUSR         0x0200
+#define ANSI_XTERMRES         0x0400
 
 #define MAX_INPUT_BUFFER_LENGTH 8192
 #define MAX_CONSOLE_CHAR 8192
@@ -172,6 +173,8 @@ static void uv__determine_vterm_state(HANDLE handle);
 
 static int uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_NONE;
 static int uv__tty_mouse_enc = UV_TTY_MOUSE_ENC_X10;
+
+static int uv__tty_modify_other_key = 0;
 
 void uv_console_init(void) {
   if (uv_sem_init(&uv_tty_output_lock, 1))
@@ -1011,13 +1014,33 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
 
         /* Prefix with \u033 if alt was held, but alt was not used as part a
          * compose sequence. */
-        if ((KEV.dwControlKeyState & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED))
-            && !(KEV.dwControlKeyState & (LEFT_CTRL_PRESSED |
-            RIGHT_CTRL_PRESSED)) && KEV.bKeyDown) {
-          handle->tty.rd.last_key[0] = '\033';
-          prefix_len = 1;
+        if (!uv__tty_modify_other_key) {
+          if ((KEV.dwControlKeyState & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED))
+              && !(KEV.dwControlKeyState & (LEFT_CTRL_PRESSED |
+                  RIGHT_CTRL_PRESSED)) && KEV.bKeyDown) {
+            handle->tty.rd.last_key[0] = '\033';
+            prefix_len = 1;
+          } else {
+            prefix_len = 0;
+          }
         } else {
-          prefix_len = 0;
+          if ((KEV.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED))
+               && !(KEV.dwControlKeyState &
+                  (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED | SHIFT_PRESSED))
+               && KEV.uChar.UnicodeChar <= 0x007F && KEV.bKeyDown) {
+            if (uv__tty_modify_other_key == 1) {
+              snprintf(handle->tty.rd.last_key, 32, "\033[%u;5u",
+                  (unsigned short)KEV.uChar.UnicodeChar);
+            } else {
+              snprintf(handle->tty.rd.last_key, 32, "\033[27;5;%u~",
+                  (unsigned short)KEV.uChar.UnicodeChar);
+            }
+            handle->tty.rd.last_key_len = strnlen(handle->tty.rd.last_key, 32);
+            handle->tty.rd.last_key_offset = 0;
+          continue;
+          } else {
+            prefix_len = 0;
+          }
         }
 
         if (KEV.uChar.UnicodeChar >= 0xDC00 &&
@@ -2244,6 +2267,7 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
         } else if (utf8_codepoint == '?' &&
                    !(ansi_parser_state & ANSI_IN_ARG) &&
                    !(ansi_parser_state & ANSI_EXTENSION) &&
+                   !(ansi_parser_state & ANSI_XTERMRES) &&
                    handle->tty.wr.ansi_csi_argc == 0) {
           /* Pass through '?' if it is the first character after CSI */
           /* This is an extension character from the VT100 codeset */
@@ -2252,10 +2276,19 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
           continue;
 
         } else if (utf8_codepoint == ' ' &&
-                   !(ansi_parser_state & ANSI_EXTENSION)) {
+                   !(ansi_parser_state & ANSI_EXTENSION) &&
+                   !(ansi_parser_state & ANSI_XTERMRES)) {
           /* We expect a command byte to follow after this space. The only
            * command that we current support is 'set cursor style'. */
           ansi_parser_state = ANSI_DECSCUSR;
+          continue;
+
+        } else if (utf8_codepoint == '>' &&
+                   !(ansi_parser_state & ANSI_IN_ARG) &&
+                   !(ansi_parser_state & ANSI_EXTENSION) &&
+                   !(ansi_parser_state & ANSI_XTERMRES) &&
+                   handle->tty.wr.ansi_csi_argc == 0) {
+          ansi_parser_state |= ANSI_XTERMRES;
           continue;
 
         } else if (utf8_codepoint >= '@' && utf8_codepoint <= '~') {
@@ -2300,6 +2333,28 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
                     FLUSH_TEXT();
                     uv_tty_set_mouse_tracking_mode(handle, argv0, TRUE, error);
                   }
+                }
+                break;
+            }
+
+          } else if (ansi_parser_state & ANSI_XTERMRES) {
+            /* Sequence is `ESC > ? args command`. */
+            switch (utf8_codepoint) {
+              case 'm':
+                if (handle->tty.wr.ansi_csi_argc == 0 ||
+                    (handle->tty.wr.ansi_csi_argc == 1 &&
+                      handle->tty.wr.ansi_csi_argv[0] == 4)) {
+                  uv__tty_modify_other_key = 0;
+                } else if (handle->tty.wr.ansi_csi_argc == 2 &&
+                           handle->tty.wr.ansi_csi_argv[0] == 4 &&
+                           handle->tty.wr.ansi_csi_argv[1] <= 2) {
+                  uv__tty_modify_other_key = handle->tty.wr.ansi_csi_argv[1];
+                }
+                break;
+              case 'n':
+                if (handle->tty.wr.ansi_csi_argc == 1 &&
+                    handle->tty.wr.ansi_csi_argv[0] == 4) {
+                  uv__tty_modify_other_key = 0;
                 }
                 break;
             }
