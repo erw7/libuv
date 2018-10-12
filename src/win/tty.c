@@ -686,6 +686,16 @@ static const char* get_vt100_fn_key(DWORD code, char shift, char ctrl,
         return "\033" normal_str;                                             \
       }
 
+#define VK_CASE_CTRL(vk, ctrl_str)                                            \
+    case (vk):                                                                \
+      if (ctrl && !shift) {                                                   \
+        *len = sizeof ctrl_str - 1;                                               \
+        return ctrl_str;                                                      \
+      } else {                                                                \
+        *len = 0;                                                             \
+        return NULL;                                                          \
+      }
+
   switch (code) {
     /* These mappings are the same as Cygwin's. Unmodified and alt-modified
      * keypad keys comply with linux console, modifiers comply with xterm
@@ -725,6 +735,11 @@ static const char* get_vt100_fn_key(DWORD code, char shift, char ctrl,
     VK_CASE(VK_F10,     "[21~", "[34~",  "[21^",  "[34^" )
     VK_CASE(VK_F11,     "[23~", "[23$",  "[23^",  "[23@" )
     VK_CASE(VK_F12,     "[24~", "[24$",  "[24^",  "[24@" )
+
+    VK_CASE_CTRL(0x32, "\0")    /* <C-2> => ^@ */
+    VK_CASE_CTRL(0x36, "\x1e")  /* <C-6> => ^^ */
+    VK_CASE_CTRL(0xbd, "\x1f")  /* <C-_> => ^_ */
+    VK_CASE_CTRL(0xbf, "\x1f")  /* <C-/> => ^_ */
 
     default:
       *len = 0;
@@ -1106,6 +1121,29 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
             KEV.uChar.UnicodeChar < 0xDC00) {
           /* UTF-16 high surrogate */
           handle->tty.rd.last_utf16_high_surrogate = KEV.uChar.UnicodeChar;
+          continue;
+        }
+
+        /* In case of <C-Space>, enter ^@ */
+        if (KEV.uChar.UnicodeChar == L' ' &&
+            (KEV.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) &&
+            !(KEV.dwControlKeyState & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) &&
+            !(KEV.dwControlKeyState & SHIFT_PRESSED) && KEV.bKeyDown) {
+          handle->tty.rd.last_key[0] = '\0';
+          handle->tty.rd.last_key_len = 1;
+          handle->tty.rd.last_key_offset = 0;
+          continue;
+        }
+
+        /* In case of <S-Tab>, enter "^[[Z" */
+        if (KEV.uChar.UnicodeChar == L'\t' &&
+            !(KEV.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) &&
+            !(KEV.dwControlKeyState & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) &&
+            (KEV.dwControlKeyState & SHIFT_PRESSED) && KEV.bKeyDown) {
+          const char* s_tab = "\033[Z";
+          snprintf(handle->tty.rd.last_key, ARRAY_SIZE(handle->tty.rd.last_key), s_tab);
+          handle->tty.rd.last_key_len = strlen(s_tab);
+          handle->tty.rd.last_key_offset = 0;
           continue;
         }
 
