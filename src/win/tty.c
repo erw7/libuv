@@ -701,6 +701,39 @@ static const char* get_vt100_fn_key(DWORD code, char shift, char ctrl,
 #undef VK_CASE
 }
 
+static unsigned char get_contorl_modify_key(unsigned char code){
+  switch (code) {
+    case '2':
+    case ' ':
+    case '@':
+    case '`':
+      return '\0';
+    case '3':
+      return '\x1b';
+    case '4':
+    case 0x5c:
+      return '\x1c';
+    case '5':
+      return '\x1d';
+    case '6':
+    case '^':
+    case '~':
+      return '\x1e';
+    case '7':
+    case '/':
+    case '_':
+      return '\x1f';
+    case '8':
+      return '\x7f';
+  }
+
+  if ((code >= 'A' && code <= 'Z') ||
+      (code >= 'a' && code <= 'z')) {
+    return (unsigned char)(0x1F & code);
+  }
+
+  return code;
+}
 
 static COORD uv_tty_make_mouse_coord(MOUSE_EVENT_RECORD mer) {
   COORD result = {0, 0};
@@ -843,6 +876,7 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
                   break;
                 case FROM_LEFT_2ND_BUTTON_PRESSED:
                   button = 1;
+                  break;
                 case RIGHTMOST_BUTTON_PRESSED:
                   button = number_of_buttons > 2 ? 2 : 1;
                   break;
@@ -1008,6 +1042,16 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
           continue;
         }
 
+        if ((KEV.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED))
+             && !(KEV.dwControlKeyState & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED))
+             && KEV.uChar.UnicodeChar <= 0x7F && KEV.bKeyDown) {
+          handle->tty.rd.last_key[0]
+            = get_contorl_modify_key((unsigned char)KEV.uChar.UnicodeChar);
+          handle->tty.rd.last_key[1] = '\0';
+          handle->tty.rd.last_key_len = 2;
+          handle->tty.rd.last_key_offset = 0;
+          continue;
+        }
         /* Prefix with \u033 if alt was held, but alt was not used as part a
          * compose sequence. */
         if ((KEV.dwControlKeyState & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED))
