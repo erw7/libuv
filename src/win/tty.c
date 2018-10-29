@@ -673,27 +673,17 @@ static const char* get_vt100_fn_key(DWORD code, char shift, char ctrl,
 #define VK_CASE(vk, normal_str, shift_str, ctrl_str, shift_ctrl_str)          \
     case (vk):                                                                \
       if (shift && ctrl) {                                                    \
-        *len = sizeof shift_ctrl_str;                                         \
-        return "\033" shift_ctrl_str;                                         \
+        *len = (sizeof shift_ctrl_str) -1;                                    \
+        return shift_ctrl_str;                                                \
       } else if (shift) {                                                     \
-        *len = sizeof shift_str ;                                             \
-        return "\033" shift_str;                                              \
+        *len = (sizeof shift_str) -1;                                         \
+        return shift_str;                                                     \
       } else if (ctrl) {                                                      \
-        *len = sizeof ctrl_str;                                               \
-        return "\033" ctrl_str;                                               \
-      } else {                                                                \
-        *len = sizeof normal_str;                                             \
-        return "\033" normal_str;                                             \
-      }
-
-#define VK_CASE_CTRL(vk, ctrl_str)                                            \
-    case (vk):                                                                \
-      if (ctrl && !shift) {                                                   \
-        *len = sizeof ctrl_str - 1;                                               \
+        *len = (sizeof ctrl_str) -1;                                          \
         return ctrl_str;                                                      \
       } else {                                                                \
-        *len = 0;                                                             \
-        return NULL;                                                          \
+        *len = (sizeof normal_str) -1;                                        \
+        return normal_str;                                                    \
       }
 
   switch (code) {
@@ -701,45 +691,54 @@ static const char* get_vt100_fn_key(DWORD code, char shift, char ctrl,
      * keypad keys comply with linux console, modifiers comply with xterm
      * modifier usage. F1. f12 and shift-f1. f10 comply with linux console, f6.
      * f12 with and without modifiers comply with rxvt. */
-    VK_CASE(VK_INSERT,  "[2~",  "[2;2~", "[2;5~", "[2;6~")
-    VK_CASE(VK_END,     "[4~",  "[4;2~", "[4;5~", "[4;6~")
-    VK_CASE(VK_DOWN,    "[B",   "[1;2B", "[1;5B", "[1;6B")
-    VK_CASE(VK_NEXT,    "[6~",  "[6;2~", "[6;5~", "[6;6~")
-    VK_CASE(VK_LEFT,    "[D",   "[1;2D", "[1;5D", "[1;6D")
-    VK_CASE(VK_CLEAR,   "[G",   "[1;2G", "[1;5G", "[1;6G")
-    VK_CASE(VK_RIGHT,   "[C",   "[1;2C", "[1;5C", "[1;6C")
-    VK_CASE(VK_UP,      "[A",   "[1;2A", "[1;5A", "[1;6A")
-    VK_CASE(VK_HOME,    "[1~",  "[1;2~", "[1;5~", "[1;6~")
-    VK_CASE(VK_PRIOR,   "[5~",  "[5;2~", "[5;5~", "[5;6~")
-    VK_CASE(VK_DELETE,  "[3~",  "[3;2~", "[3;5~", "[3;6~")
-    VK_CASE(VK_NUMPAD0, "[2~",  "[2;2~", "[2;5~", "[2;6~")
-    VK_CASE(VK_NUMPAD1, "[4~",  "[4;2~", "[4;5~", "[4;6~")
-    VK_CASE(VK_NUMPAD2, "[B",   "[1;2B", "[1;5B", "[1;6B")
-    VK_CASE(VK_NUMPAD3, "[6~",  "[6;2~", "[6;5~", "[6;6~")
-    VK_CASE(VK_NUMPAD4, "[D",   "[1;2D", "[1;5D", "[1;6D")
-    VK_CASE(VK_NUMPAD5, "[G",   "[1;2G", "[1;5G", "[1;6G")
-    VK_CASE(VK_NUMPAD6, "[C",   "[1;2C", "[1;5C", "[1;6C")
-    VK_CASE(VK_NUMPAD7, "[A",   "[1;2A", "[1;5A", "[1;6A")
-    VK_CASE(VK_NUMPAD8, "[1~",  "[1;2~", "[1;5~", "[1;6~")
-    VK_CASE(VK_NUMPAD9, "[5~",  "[5;2~", "[5;5~", "[5;6~")
-    VK_CASE(VK_DECIMAL, "[3~",  "[3;2~", "[3;5~", "[3;6~")
-    VK_CASE(VK_F1,      "[[A",  "[23~",  "[11^",  "[23^" )
-    VK_CASE(VK_F2,      "[[B",  "[24~",  "[12^",  "[24^" )
-    VK_CASE(VK_F3,      "[[C",  "[25~",  "[13^",  "[25^" )
-    VK_CASE(VK_F4,      "[[D",  "[26~",  "[14^",  "[26^" )
-    VK_CASE(VK_F5,      "[[E",  "[28~",  "[15^",  "[28^" )
-    VK_CASE(VK_F6,      "[17~", "[29~",  "[17^",  "[29^" )
-    VK_CASE(VK_F7,      "[18~", "[31~",  "[18^",  "[31^" )
-    VK_CASE(VK_F8,      "[19~", "[32~",  "[19^",  "[32^" )
-    VK_CASE(VK_F9,      "[20~", "[33~",  "[20^",  "[33^" )
-    VK_CASE(VK_F10,     "[21~", "[34~",  "[21^",  "[34^" )
-    VK_CASE(VK_F11,     "[23~", "[23$",  "[23^",  "[23@" )
-    VK_CASE(VK_F12,     "[24~", "[24$",  "[24^",  "[24@" )
-
-    VK_CASE_CTRL(0x32, "\0")    /* <C-2> => ^@ */
-    VK_CASE_CTRL(0x36, "\x1e")  /* <C-6> => ^^ */
-    VK_CASE_CTRL(0xbd, "\x1f")  /* <C-_> => ^_ */
-    VK_CASE_CTRL(0xbf, "\x1f")  /* <C-/> => ^_ */
+    VK_CASE(VK_INSERT,    "\033[2~",  "\033[2;2~", "\033[2;5~", "\033[2;6~")
+    VK_CASE(VK_END,       "\033[4~",  "\033[4;2~", "\033[4;5~", "\033[4;6~")
+    VK_CASE(VK_DOWN,      "\033[B",   "\033[1;2B", "\033[1;5B", "\033[1;6B")
+    VK_CASE(VK_NEXT,      "\033[6~",  "\033[6;2~", "\033[6;5~", "\033[6;6~")
+    VK_CASE(VK_LEFT,      "\033[D",   "\033[1;2D", "\033[1;5D", "\033[1;6D")
+    VK_CASE(VK_CLEAR,     "\033[G",   "\033[1;2G", "\033[1;5G", "\033[1;6G")
+    VK_CASE(VK_RIGHT,     "\033[C",   "\033[1;2C", "\033[1;5C", "\033[1;6C")
+    VK_CASE(VK_UP,        "\033[A",   "\033[1;2A", "\033[1;5A", "\033[1;6A")
+    VK_CASE(VK_HOME,      "\033[1~",  "\033[1;2~", "\033[1;5~", "\033[1;6~")
+    VK_CASE(VK_PRIOR,     "\033[5~",  "\033[5;2~", "\033[5;5~", "\033[5;6~")
+    VK_CASE(VK_DELETE,    "\033[3~",  "\033[3;2~", "\033[3;5~", "\033[3;6~")
+    VK_CASE(VK_NUMPAD0,   "\033[2~",  "\033[2;2~", "\033[2;5~", "\033[2;6~")
+    VK_CASE(VK_NUMPAD1,   "\033[4~",  "\033[4;2~", "\033[4;5~", "\033[4;6~")
+    VK_CASE(VK_NUMPAD2,   "\033[B",   "\033[1;2B", "\033[1;5B", "\033[1;6B")
+    VK_CASE(VK_NUMPAD3,   "\033[6~",  "\033[6;2~", "\033[6;5~", "\033[6;6~")
+    VK_CASE(VK_NUMPAD4,   "\033[D",   "\033[1;2D", "\033[1;5D", "\033[1;6D")
+    VK_CASE(VK_NUMPAD5,   "\033[G",   "\033[1;2G", "\033[1;5G", "\033[1;6G")
+    VK_CASE(VK_NUMPAD6,   "\033[C",   "\033[1;2C", "\033[1;5C", "\033[1;6C")
+    VK_CASE(VK_NUMPAD7,   "\033[A",   "\033[1;2A", "\033[1;5A", "\033[1;6A")
+    VK_CASE(VK_NUMPAD8,   "\033[1~",  "\033[1;2~", "\033[1;5~", "\033[1;6~")
+    VK_CASE(VK_NUMPAD9,   "\033[5~",  "\033[5;2~", "\033[5;5~", "\033[5;6~")
+    VK_CASE(VK_DECIMAL,   "\033[3~",  "\033[3;2~", "\033[3;5~", "\033[3;6~")
+    VK_CASE(VK_F1,        "\033[[A",  "\033[23~",  "\033[11^",  "\033[23^" )
+    VK_CASE(VK_F2,        "\033[[B",  "\033[24~",  "\033[12^",  "\033[24^" )
+    VK_CASE(VK_F3,        "\033[[C",  "\033[25~",  "\033[13^",  "\033[25^" )
+    VK_CASE(VK_F4,        "\033[[D",  "\033[26~",  "\033[14^",  "\033[26^" )
+    VK_CASE(VK_F5,        "\033[[E",  "\033[28~",  "\033[15^",  "\033[28^" )
+    VK_CASE(VK_F6,        "\033[17~", "\033[29~",  "\033[17^",  "\033[29^" )
+    VK_CASE(VK_F7,        "\033[18~", "\033[31~",  "\033[18^",  "\033[31^" )
+    VK_CASE(VK_F8,        "\033[19~", "\033[32~",  "\033[19^",  "\033[32^" )
+    VK_CASE(VK_F9,        "\033[20~", "\033[33~",  "\033[20^",  "\033[33^" )
+    VK_CASE(VK_F10,       "\033[21~", "\033[34~",  "\033[21^",  "\033[34^" )
+    VK_CASE(VK_F11,       "\033[23~", "\033[23$",  "\033[23^",  "\033[23@" )
+    VK_CASE(VK_F12,       "\033[24~", "\033[24$",  "\033[24^",  "\033[24@" )
+    VK_CASE(VK_TAB,       NULL,       "\033[Z",    NULL,        NULL)  /* <S-Tab> => ^[[Z */
+    VK_CASE(VK_SPACE,     NULL,       NULL,        "\0",        NULL)  /* <C-Space> => ^@ */
+    VK_CASE(0x30,         NULL,       NULL,        "0",         NULL)
+    VK_CASE(0x31,         NULL,       NULL,        "1",         NULL)
+    VK_CASE(0x32,         NULL,       NULL,        "\0",        NULL)  /* <C-2> => ^@ */
+    VK_CASE(0x33,         NULL,       NULL,        "3",         NULL)
+    VK_CASE(0x34,         NULL,       NULL,        "4",         NULL)
+    VK_CASE(0x35,         NULL,       NULL,        "5",         NULL)
+    VK_CASE(0x36,         NULL,       NULL,        "\x1e",      NULL)  /* <C-6> => ^^ */
+    VK_CASE(0x37,         NULL,       NULL,        "7",         NULL)
+    VK_CASE(0x38,         NULL,       NULL,        "8",         NULL)
+    VK_CASE(0x39,         NULL,       NULL,        "9",         NULL)
+    VK_CASE(VK_OEM_MINUS, NULL,       NULL,        "\x1f",      NULL)  /* <C-_> => ^_ */
+    VK_CASE(VK_OEM_2,     NULL,       NULL,        "\x1f",      NULL)  /* <C-/> => ^_ */
 
     default:
       *len = 0;
@@ -1114,36 +1113,15 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
       }
 
       if (KEV.uChar.UnicodeChar != 0) {
+        const char *vt100;
         int prefix_len, char_len;
+        size_t vt100_len;
 
         /* Character key pressed */
         if (KEV.uChar.UnicodeChar >= 0xD800 &&
             KEV.uChar.UnicodeChar < 0xDC00) {
           /* UTF-16 high surrogate */
           handle->tty.rd.last_utf16_high_surrogate = KEV.uChar.UnicodeChar;
-          continue;
-        }
-
-        /* In case of <C-Space>, enter ^@ */
-        if (KEV.uChar.UnicodeChar == L' ' &&
-            (KEV.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) &&
-            !(KEV.dwControlKeyState & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) &&
-            !(KEV.dwControlKeyState & SHIFT_PRESSED) && KEV.bKeyDown) {
-          handle->tty.rd.last_key[0] = '\0';
-          handle->tty.rd.last_key_len = 1;
-          handle->tty.rd.last_key_offset = 0;
-          continue;
-        }
-
-        /* In case of <S-Tab>, enter "^[[Z" */
-        if (KEV.uChar.UnicodeChar == L'\t' &&
-            !(KEV.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) &&
-            !(KEV.dwControlKeyState & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) &&
-            (KEV.dwControlKeyState & SHIFT_PRESSED) && KEV.bKeyDown) {
-          const char* s_tab = "\033[Z";
-          snprintf(handle->tty.rd.last_key, ARRAY_SIZE(handle->tty.rd.last_key), s_tab);
-          handle->tty.rd.last_key_len = strlen(s_tab);
-          handle->tty.rd.last_key_offset = 0;
           continue;
         }
 
@@ -1156,6 +1134,23 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
           prefix_len = 1;
         } else {
           prefix_len = 0;
+        }
+
+        /* Processing in the case of <C-Space> and <C-Tab> */
+        vt100 = get_vt100_fn_key(KEV.wVirtualKeyCode,
+                                  !!(KEV.dwControlKeyState & SHIFT_PRESSED),
+                                  !!(KEV.dwControlKeyState & (
+                                    LEFT_CTRL_PRESSED |
+                                    RIGHT_CTRL_PRESSED)),
+                                  &vt100_len);
+
+        if (vt100) {
+          assert(prefix_len + vt100_len < sizeof handle->tty.rd.last_key);
+          memcpy(&handle->tty.rd.last_key[prefix_len], vt100, vt100_len);
+
+          handle->tty.rd.last_key_len = (unsigned char) (prefix_len + vt100_len);
+          handle->tty.rd.last_key_offset = 0;
+          continue;
         }
 
         if (KEV.uChar.UnicodeChar >= 0xDC00 &&
