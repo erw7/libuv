@@ -80,6 +80,7 @@
         'test-poll-close-doesnt-corrupt-stack.c',
         'test-poll-closesocket.c',
         'test-poll-oob.c',
+        'test-process-priority.c',
         'test-process-title.c',
         'test-process-title-threadsafe.c',
         'test-queue-foreach-delete.c',
@@ -155,7 +156,10 @@
       'conditions': [
         [ 'OS=="win"', {
           'sources': [
+<<<<<<< HEAD
             'test-tty-escape-sequence-processing.c',
+=======
+>>>>>>> v1.23.2
             'runner-win.c',
             'runner-win.h',
             '../src/win/snprintf.c',
