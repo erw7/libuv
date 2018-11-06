@@ -857,6 +857,7 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
                   break;
                 case FROM_LEFT_2ND_BUTTON_PRESSED:
                   button = 1;
+                  break;
                 case RIGHTMOST_BUTTON_PRESSED:
                   button = number_of_buttons > 2 ? 2 : 1;
                   break;
