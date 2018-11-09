@@ -1963,8 +1963,10 @@ static BOOL SaveConsoleBuffer(uv_tty_t* handle, uv_tty_console_buffer_t* cb, DWO
     uv__free(cb->Buffer);
     cb->Buffer = (PCHAR_INFO)uv__malloc(NumCells * sizeof(CHAR_INFO));
     if (cb->Buffer == NULL)
+    {
       *error = ENOMEM;
       return FALSE;
+    }
   }
 
   /*
