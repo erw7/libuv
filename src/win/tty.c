@@ -175,12 +175,11 @@ static int uv__tty_mouse_enc = UV_TTY_MOUSE_ENC_X10;
 
 typedef struct uv_tty_console_buffer_s
 {
-  BOOL IsValid;
-  CONSOLE_SCREEN_BUFFER_INFO Info;
-  PCHAR_INFO Buffer;
-  COORD BufferSize;
-  PSMALL_RECT Regions;
-  int NumRegions;
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  PCHAR_INFO buffer;
+  COORD buffer_size;
+  PSMALL_RECT regions;
+  int num_regions;
 } uv_tty_console_buffer_t;
 
 static uv_tty_console_buffer_t* uv__tty_console_buffer = NULL;
@@ -1919,54 +1918,46 @@ static int uv_tty_set_cursor_shape(uv_tty_t* handle, int style, DWORD* error) {
 
 #define SRWIDTH(sr) ((sr).Right - (sr).Left + 1)
 #define SRHEIGHT(sr) ((sr).Bottom - (sr).Top + 1)
+static  int uv_tty_set_alternate_screen(uv_tty_t* handle, DWORD* error) {
+  COORD size, origin = {0, 0};
+  DWORD num_cells;
+  COORD buffer_coord;
+  SMALL_RECT read_region;
+  WORD y, y_incr;
+  int i;
 
-/*
- * SaveConsoleBuffer()
- * Description:
- *  Saves important information about the console buffer, including the
- *  actual buffer contents.  The saved information is suitable for later
- *  restoration by RestoreConsoleBuffer().
- * Returns:
- *  TRUE if all information was saved; FALSE otherwise
- *  If FALSE, still sets cb->IsValid if buffer characteristics were saved.
- */
-static BOOL SaveConsoleBuffer(uv_tty_t* handle, uv_tty_console_buffer_t* cb, DWORD* error) {
-  DWORD NumCells;
-  COORD BufferCoord;
-  SMALL_RECT ReadRegion;
-  WORD Y, Y_incr;
-  int i, numregions;
-
-  if (cb == NULL)
-    return FALSE;
-
-  if (!GetConsoleScreenBufferInfo(handle->handle, &cb->Info))
-  {
-    *error = GetLastError();
-    cb->IsValid = FALSE;
-    return FALSE;
+  if (uv__tty_console_buffer) {
+    return 0;
   }
-  cb->IsValid = TRUE;
+
+  uv__tty_console_buffer =
+    (uv_tty_console_buffer_t*)uv__malloc(sizeof(uv_tty_console_buffer_t));
+  if (uv__tty_console_buffer == NULL) {
+    *error = ENOMEM;
+    return -1;
+  }
+  uv__tty_console_buffer->buffer = NULL;
+  uv__tty_console_buffer->regions = NULL;
+
+  if (!GetConsoleScreenBufferInfo(handle->handle, &uv__tty_console_buffer->info)) {
+    *error = GetLastError();
+    goto cleanup;
+  }
 
   /*
    * Allocate a buffer large enough to hold the entire console screen
    * buffer.  If this ConsoleBuffer structure has already been initialized
    * with a buffer of the correct size, then just use that one.
    */
-  if (!cb->IsValid || cb->Buffer == NULL ||
-      cb->BufferSize.X != cb->Info.dwSize.X ||
-      cb->BufferSize.Y != cb->Info.dwSize.Y)
-  {
-    cb->BufferSize.X = cb->Info.dwSize.X;
-    cb->BufferSize.Y = cb->Info.dwSize.Y;
-    NumCells = cb->BufferSize.X * cb->BufferSize.Y;
-    uv__free(cb->Buffer);
-    cb->Buffer = (PCHAR_INFO)uv__malloc(NumCells * sizeof(CHAR_INFO));
-    if (cb->Buffer == NULL)
-    {
-      *error = ENOMEM;
-      return FALSE;
-    }
+  uv__tty_console_buffer->buffer_size.X = uv__tty_console_buffer->info.dwSize.X;
+  uv__tty_console_buffer->buffer_size.Y = uv__tty_console_buffer->info.dwSize.Y;
+  num_cells =
+    uv__tty_console_buffer->buffer_size.X * uv__tty_console_buffer->buffer_size.Y;
+  uv__tty_console_buffer->buffer =
+    (PCHAR_INFO)uv__malloc(num_cells * sizeof(CHAR_INFO));
+  if (uv__tty_console_buffer->buffer == NULL) {
+    *error = ENOMEM;
+    goto cleanup;
   }
 
   /*
@@ -1978,249 +1969,174 @@ static BOOL SaveConsoleBuffer(uv_tty_t* handle, uv_tty_console_buffer_t* cb, DWO
    * same horizontal characteristics, so initialize them now.  The
    * height of each chunk will be (12000 / width).
    */
-  BufferCoord.X = 0;
-  ReadRegion.Left = 0;
-  ReadRegion.Right = cb->Info.dwSize.X - 1;
-  Y_incr = 12000 / cb->Info.dwSize.X;
+  buffer_coord.X = 0;
+  read_region.Left = 0;
+  read_region.Right = uv__tty_console_buffer->info.dwSize.X - 1;
+  y_incr = 12000 / uv__tty_console_buffer->info.dwSize.X;
 
-  numregions = (cb->Info.dwSize.Y + Y_incr - 1) / Y_incr;
-  if (cb->Regions == NULL || numregions != cb->NumRegions)
-  {
-    cb->NumRegions = numregions;
-    uv__free(cb->Regions);
-    cb->Regions = (PSMALL_RECT)uv__malloc(cb->NumRegions * sizeof(SMALL_RECT));
-    if (cb->Regions == NULL)
-    {
-      *error = ENOMEM;
-      uv__free(cb->Buffer);
-      return FALSE;
-    }
+  uv__tty_console_buffer->num_regions =
+    (uv__tty_console_buffer->info.dwSize.Y + y_incr - 1) / y_incr;
+  uv__tty_console_buffer->regions =
+    (PSMALL_RECT)uv__malloc(uv__tty_console_buffer->num_regions * sizeof(SMALL_RECT));
+  if (uv__tty_console_buffer->regions == NULL) {
+    *error = ENOMEM;
+    goto cleanup;
   }
 
-  for (i = 0, Y = 0; i < cb->NumRegions; i++, Y += Y_incr)
-  {
+  for (i = 0, y = 0; i < uv__tty_console_buffer->num_regions; i++, y += y_incr) {
     /*
-     * Read into position (0, Y) in our buffer.
+     * Read into position (0, y) in our buffer.
      */
-    BufferCoord.Y = Y;
+    buffer_coord.Y = y;
     /*
-     * Read the region whose top left corner is (0, Y) and whose bottom
-     * right corner is (width - 1, Y + Y_incr - 1).  This should define
-     * a region of size width by Y_incr.  Don't worry if this region is
+     * Read the region whose top left corner is (0, y) and whose bottom
+     * right corner is (width - 1, y + y_incr - 1).  This should define
+     * a region of size width by y_incr.  Don't worry if this region is
      * too large for the remaining buffer; it will be cropped.
      */
-    ReadRegion.Top = Y;
-    ReadRegion.Bottom = Y + Y_incr - 1;
-    if (!ReadConsoleOutputW(handle->handle,	/* output handle */
-          cb->Buffer,			/* our buffer */
-          cb->BufferSize,			/* dimensions of our buffer */
-          BufferCoord,			/* offset in our buffer */
-          &ReadRegion))			/* region to save */
+    read_region.Top = y;
+    read_region.Bottom = y + y_incr - 1;
+    if (!ReadConsoleOutputW(handle->handle,     /* output handle */
+          uv__tty_console_buffer->buffer,       /* our buffer */
+          uv__tty_console_buffer->buffer_size,  /* dimensions of our buffer */
+          buffer_coord,                         /* offset in our buffer */
+          &read_region))                        /* region to save */
     {
       *error = GetLastError();
-      uv__free(cb->Buffer);
-      uv__free(cb->Regions);
-      return FALSE;
+      goto cleanup;
     }
-    cb->Regions[i] = ReadRegion;
+    uv__tty_console_buffer->regions[i] = read_region;
   }
 
-  return TRUE;
-}
-
-static  int uv_tty_set_alternate_screen(uv_tty_t* handle, DWORD* error) {
-  COORD size, pos = {0, 0};
-  if (uv__tty_console_buffer) {
-    return 0;
-  }
-  uv__tty_console_buffer =
-    (uv_tty_console_buffer_t*)uv__malloc(sizeof(uv_tty_console_buffer_t));
-  uv__tty_console_buffer->Buffer = NULL;
-  uv__tty_console_buffer->Regions = NULL;
-  if (uv__tty_console_buffer == NULL) {
-    *error = ENOMEM;
-    return 0;
-  }
-  if (!SaveConsoleBuffer(handle, uv__tty_console_buffer, error)) {
-    uv__free(uv__tty_console_buffer);
-    uv__tty_console_buffer = NULL;
-    return -1;
-  }
-  size.Y = SRHEIGHT(uv__tty_console_buffer->Info.srWindow);
-  size.X = SRWIDTH(uv__tty_console_buffer->Info.srWindow);
-  if (!(SetConsoleScreenBufferSize(handle->handle, size)
-        && SetConsoleCursorPosition(handle->handle, pos))) {
+  size.Y = SRHEIGHT(uv__tty_console_buffer->info.srWindow);
+  size.X = SRWIDTH(uv__tty_console_buffer->info.srWindow);
+  if (!SetConsoleScreenBufferSize(handle->handle, size)) {
     *error = GetLastError();
-    uv__free(uv__tty_console_buffer->Buffer);
-    uv__free(uv__tty_console_buffer->Regions);
-    uv__free(uv__tty_console_buffer);
-    uv__tty_console_buffer = NULL;
+    goto cleanup;
+  }
+  if (!SetConsoleCursorPosition(handle->handle, origin)) {
+    *error = GetLastError();
+    goto cleanup;
+  }
+
+  return 0;
+
+ cleanup:
+  uv__free(uv__tty_console_buffer->buffer);
+  uv__free(uv__tty_console_buffer->regions);
+  uv__free(uv__tty_console_buffer);
+  uv__tty_console_buffer = NULL;
+  return -1;
+}
+
+static int uv_tty_reset_alternate_screen(uv_tty_t* handle, DWORD* error) {
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  DWORD num_cells, dummy;
+  COORD buffer_coord, window_size, origin = {0, 0};
+  SMALL_RECT write_region;
+  int i, ret = 0;
+  BOOL need_adjust = FALSE;
+
+  if (uv__tty_console_buffer == NULL) {
     return -1;
   }
-  return 0;
-}
-
-/*
- * ClearConsoleBuffer()
- * Description:
- *  Clears the entire contents of the console screen buffer, using the
- *  specified attribute.
- * Returns:
- *  TRUE on success
- */
-static BOOL ClearConsoleBuffer(uv_tty_t* handle, WORD wAttribute) {
-  CONSOLE_SCREEN_BUFFER_INFO csbi;
-  COORD coord;
-  DWORD NumCells, dummy;
-
-  if (!GetConsoleScreenBufferInfo(handle->handle, &csbi))
-    return FALSE;
-
-  NumCells = csbi.dwSize.X * csbi.dwSize.Y;
-  coord.X = 0;
-  coord.Y = 0;
-  if (!FillConsoleOutputCharacter(handle->handle, ' ', NumCells,
-        coord, &dummy)) {
-    return FALSE;
-  }
-  if (!FillConsoleOutputAttribute(handle->handle, wAttribute, NumCells, coord, &dummy)) {
-    return FALSE;
-  }
-
-  return TRUE;
-}
-
-/*
- * FitConsoleWindow()
- * Description:
- *  Checks if the console window will fit within given buffer dimensions.
- *  Also, if requested, will shrink the window to fit.
- * Returns:
- *  TRUE on success
- */
-static BOOL FitConsoleWindow(uv_tty_t* handle, COORD dwBufferSize, BOOL WantAdjust)
-{
-  CONSOLE_SCREEN_BUFFER_INFO csbi;
-  COORD dwWindowSize;
-  BOOL NeedAdjust = FALSE;
-
-  if (GetConsoleScreenBufferInfo(handle->handle, &csbi))
-  {
-    /*
-     * A buffer resize will fail if the current console window does
-     * not lie completely within that buffer.  To avoid this, we might
-     * have to move and possibly shrink the window.
-     */
-    if (csbi.srWindow.Right >= dwBufferSize.X) {
-      dwWindowSize.X = SRWIDTH(csbi.srWindow);
-      if (dwWindowSize.X > dwBufferSize.X)
-        dwWindowSize.X = dwBufferSize.X;
-      csbi.srWindow.Right = dwBufferSize.X - 1;
-      csbi.srWindow.Left = dwBufferSize.X - dwWindowSize.X;
-      NeedAdjust = TRUE;
-    }
-    if (csbi.srWindow.Bottom >= dwBufferSize.Y) {
-      dwWindowSize.Y = SRHEIGHT(csbi.srWindow);
-      if (dwWindowSize.Y > dwBufferSize.Y)
-        dwWindowSize.Y = dwBufferSize.Y;
-      csbi.srWindow.Bottom = dwBufferSize.Y - 1;
-      csbi.srWindow.Top = dwBufferSize.Y - dwWindowSize.Y;
-      NeedAdjust = TRUE;
-    }
-    if (NeedAdjust && WantAdjust) {
-      if (!SetConsoleWindowInfo(handle->handle, TRUE, &csbi.srWindow))
-        return FALSE;
-    }
-    return TRUE;
-  }
-
-  return FALSE;
-}
-
-/*
- * RestoreConsoleBuffer()
- * Description:
- *  Restores important information about the console buffer, including the
- *  actual buffer contents, if desired.  The information to restore is in
- *  the same format used by SaveConsoleBuffer().
- * Returns:
- *  TRUE on success
- */
-static BOOL RestoreConsoleBuffer(uv_tty_t* handle, uv_tty_console_buffer_t* cb, BOOL RestoreScreen, DWORD* error) {
-  COORD BufferCoord;
-  SMALL_RECT WriteRegion;
-  int i;
-
-  if (cb == NULL || !cb->IsValid)
-    return FALSE;
 
   /*
    * Before restoring the buffer contents, clear the current buffer, and
    * restore the cursor position and window information.  Doing this now
    * prevents old buffer contents from "flashing" onto the screen.
    */
-  if (RestoreScreen)
-    ClearConsoleBuffer(handle, cb->Info.wAttributes);
+  if (!GetConsoleScreenBufferInfo(handle->handle, &info)) {
+    num_cells = info.dwSize.X * info.dwSize.Y;
+    FillConsoleOutputCharacterW(handle->handle,
+                                L'\x20',
+                                num_cells,
+                                origin,
+                                &dummy);
+    FillConsoleOutputAttribute(handle->handle,
+                               uv__tty_console_buffer->info.wAttributes,
+                               num_cells,
+                               origin,
+                               &dummy);
 
-  FitConsoleWindow(handle, cb->Info.dwSize, TRUE);
-  if (!SetConsoleScreenBufferSize(handle->handle, cb->Info.dwSize))
-    return FALSE;
-  if (!SetConsoleTextAttribute(handle->handle, cb->Info.wAttributes))
-    return FALSE;
-
-  if (!RestoreScreen)
-  {
     /*
-     * No need to restore the screen buffer contents, so we're done.
+     * A buffer resize will fail if the current console window does
+     * not lie completely within that buffer.  To avoid this, we might
+     * have to move and possibly shrink the window.
      */
-    return TRUE;
+    if (info.srWindow.Right >= uv__tty_console_buffer->info.dwSize.X) {
+      window_size.X = SRWIDTH(info.srWindow);
+      if (window_size.X > uv__tty_console_buffer->info.dwSize.X) {
+        window_size.X = uv__tty_console_buffer->info.dwSize.X;
+      }
+      info.srWindow.Right = uv__tty_console_buffer->info.dwSize.X - 1;
+      info.srWindow.Left = uv__tty_console_buffer->info.dwSize.X - window_size.X;
+      need_adjust = TRUE;
+    }
+    if (info.srWindow.Bottom >= uv__tty_console_buffer->info.dwSize.Y) {
+      window_size.Y = SRHEIGHT(info.srWindow);
+      if (window_size.Y > uv__tty_console_buffer->info.dwSize.Y) {
+        window_size.Y = uv__tty_console_buffer->info.dwSize.Y;
+      }
+      info.srWindow.Bottom = uv__tty_console_buffer->info.dwSize.Y - 1;
+      info.srWindow.Top = uv__tty_console_buffer->info.dwSize.Y - window_size.Y;
+      need_adjust = TRUE;
+    }
+    if (need_adjust) {
+      SetConsoleWindowInfo(handle->handle, TRUE, &info.srWindow);
+    }
   }
 
-  if (!SetConsoleCursorPosition(handle->handle, cb->Info.dwCursorPosition)) {
+  if (!SetConsoleScreenBufferSize(handle->handle,
+        uv__tty_console_buffer->info.dwSize)) {
     *error = GetLastError();
-    return FALSE;
+    ret = -1;
+    goto cleanup;
+  }
+  if (!SetConsoleTextAttribute(handle->handle,
+        uv__tty_console_buffer->info.wAttributes)) {
+    *error = GetLastError();
+    ret = -1;
+    goto cleanup;
   }
 
-  if (!SetConsoleWindowInfo(handle->handle, TRUE, &cb->Info.srWindow)) {
+  if (!SetConsoleCursorPosition(handle->handle,
+        uv__tty_console_buffer->info.dwCursorPosition)) {
     *error = GetLastError();
-    return FALSE;
+    ret = -1;
+    goto cleanup;
+  }
+
+  if (!SetConsoleWindowInfo(handle->handle,
+        TRUE, &uv__tty_console_buffer->info.srWindow)) {
+    *error = GetLastError();
+    ret = -1;
+    goto cleanup;
   }
 
   /*
    * Restore the screen buffer contents.
    */
-  if (cb->Buffer != NULL)
-  {
-    for (i = 0; i < cb->NumRegions; i++)
-    {
-      BufferCoord.X = cb->Regions[i].Left;
-      BufferCoord.Y = cb->Regions[i].Top;
-      WriteRegion = cb->Regions[i];
-      if (!WriteConsoleOutputW(handle->handle,	/* output handle */
-            cb->Buffer,		/* our buffer */
-            cb->BufferSize,		/* dimensions of our buffer */
-            BufferCoord,		/* offset in our buffer */
-            &WriteRegion))		/* region to restore */
-      {
-        *error = GetLastError();
-        return FALSE;
-      }
+  for (i = 0; i < uv__tty_console_buffer->num_regions; i++) {
+    buffer_coord.X = uv__tty_console_buffer->regions[i].Left;
+    buffer_coord.Y = uv__tty_console_buffer->regions[i].Top;
+    write_region = uv__tty_console_buffer->regions[i];
+    if (!WriteConsoleOutputW(
+          handle->handle,                       /* output handle */
+          uv__tty_console_buffer->buffer,       /* our buffer */
+          uv__tty_console_buffer->buffer_size,  /* dimensions of our buffer */
+          buffer_coord,                          /* offset in our buffer */
+          &write_region                          /* region to restore */
+          )) {
+      *error = GetLastError();
+      ret = -1;
+      goto cleanup;
     }
   }
 
-  return TRUE;
-}
-
-static int uv_tty_reset_alternate_screen(uv_tty_t* handle, DWORD* error) {
-  int ret = 0;
-  if (uv__tty_console_buffer == NULL) {
-    return -1;
-  }
-  if (RestoreConsoleBuffer(handle, uv__tty_console_buffer, TRUE, error)) {
-    ret = -1;
-  }
-  uv__free(uv__tty_console_buffer->Buffer);
-  uv__free(uv__tty_console_buffer->Regions);
+ cleanup:
+  uv__free(uv__tty_console_buffer->buffer);
+  uv__free(uv__tty_console_buffer->regions);
   uv__free(uv__tty_console_buffer);
   uv__tty_console_buffer = NULL;
   return ret;
