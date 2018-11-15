@@ -225,7 +225,7 @@ int uv_tty_init(uv_loop_t* loop, uv_tty_t* tty, uv_file fd, int unused) {
       return uv_translate_sys_error(GetLastError());
     }
 
-    /* Obtaion the cursor info with the output handle. */
+    /* Obtain the cursor info with the output handle. */
     if (!GetConsoleCursorInfo(handle, &cursor_info)) {
       return uv_translate_sys_error(GetLastError());
     }
