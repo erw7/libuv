@@ -335,38 +335,57 @@ if(APPLE OR CMAKE_SYSTEM_NAME MATCHES "DragonFly|FreeBSD|Linux|NetBSD|OpenBSD")
   list(APPEND uv_test_libraries util)
 endif()
 
-add_library(uv SHARED ${uv_sources})
-target_compile_definitions(uv
+if(CMAKE_SYSTEM_NAME MATCHES "CYGWIN|MSYS")
+  list(APPEND uv_defines _GNU_SOURCE)
+  list(APPEND uv_sources
+       src/unix/cygwin.c
+       src/unix/bsd-ifaddrs.c
+       src/unix/no-fsevents.c
+       src/unix/no-proctitle.c
+       src/unix/posix-hrtime.c
+       src/unix/posix-poll.c
+       src/unix/procfs-exepath.c
+       src/unix/sysinfo-loadavg.c
+       src/unix/sysinfo-memory.c)
+endif()
+
+add_library(uv_shared SHARED ${uv_sources})
+target_compile_definitions(uv_shared
   INTERFACE
     USING_UV_SHARED=1
   PRIVATE
     BUILDING_UV_SHARED=1
     ${uv_defines})
-target_compile_options(uv PRIVATE ${uv_cflags})
-target_include_directories(uv
+target_compile_options(uv_shared PRIVATE ${uv_cflags})
+target_include_directories(uv_shared
   PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   PRIVATE
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src>)
-target_link_libraries(uv ${uv_libraries})
+target_link_libraries(uv_shared ${uv_libraries})
+set_target_properties(uv_shared PROPERTIES OUTPUT_NAME "uv")
 
-add_library(uv_a STATIC ${uv_sources})
-target_compile_definitions(uv_a PRIVATE ${uv_defines})
-target_compile_options(uv_a PRIVATE ${uv_cflags})
-target_include_directories(uv_a
+add_library(uv_static STATIC ${uv_sources})
+target_compile_definitions(uv_static PRIVATE ${uv_defines})
+target_compile_options(uv_static PRIVATE ${uv_cflags})
+target_include_directories(uv_static
   PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   PRIVATE
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src>)
-target_link_libraries(uv_a ${uv_libraries})
+target_link_libraries(uv_static ${uv_libraries})
+set_target_properties(uv_static PROPERTIES OUTPUT_NAME "uv")
+if(MSVC)
+  set_target_properties(uv_static PROPERTIES PREFIX "lib")
+endif()
 
 if(LIBUV_BUILD_TESTS)
   # Small hack: use ${uv_test_sources} now to get the runner skeleton,
   # before the actual tests are added.
   add_executable(
-    uv_run_benchmarks_a
+    uv_run_benchmarks_static
     ${uv_test_sources}
     test/benchmark-async-pummel.c
     test/benchmark-async.c
@@ -390,9 +409,9 @@ if(LIBUV_BUILD_TESTS)
     test/echo-server.c
     test/run-benchmarks.c
     test/runner.c)
-  target_compile_definitions(uv_run_benchmarks_a PRIVATE ${uv_defines})
-  target_compile_options(uv_run_benchmarks_a PRIVATE ${uv_cflags})
-  target_link_libraries(uv_run_benchmarks_a uv_a ${uv_test_libraries})
+  target_compile_definitions(uv_run_benchmarks_static PRIVATE ${uv_defines})
+  target_compile_options(uv_run_benchmarks_static PRIVATE ${uv_cflags})
+  target_link_libraries(uv_run_benchmarks_static uv_static ${uv_test_libraries})
 
   list(APPEND uv_test_sources
        test/blackhole-server.c
@@ -560,28 +579,31 @@ if(LIBUV_BUILD_TESTS)
        test/test-walk-handles.c
        test/test-watcher-cross-stop.c)
 
-  add_executable(uv_run_tests ${uv_test_sources} uv_win_longpath.manifest)
-  target_compile_definitions(uv_run_tests
+  add_executable(uv_run_tests_shared ${uv_test_sources} uv_win_longpath.manifest)
+  target_compile_definitions(uv_run_tests_shared
                              PRIVATE ${uv_defines} USING_UV_SHARED=1)
-  target_compile_options(uv_run_tests PRIVATE ${uv_cflags})
-  target_link_libraries(uv_run_tests uv ${uv_test_libraries})
-  add_test(NAME uv_test
-           COMMAND uv_run_tests
+  target_compile_options(uv_run_tests_shared PRIVATE ${uv_cflags})
+  target_link_libraries(uv_run_tests_shared uv_shared ${uv_test_libraries})
+  add_test(NAME uv_test_shared
+           COMMAND uv_run_tests_shared
            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   if(CMAKE_SYSTEM_NAME STREQUAL "OS390")
     set_tests_properties(uv_test PROPERTIES ENVIRONMENT
                          "LIBPATH=${CMAKE_BINARY_DIR}:$ENV{LIBPATH}")
   endif()
-  add_executable(uv_run_tests_a ${uv_test_sources} uv_win_longpath.manifest)
-  target_compile_definitions(uv_run_tests_a PRIVATE ${uv_defines})
-  target_compile_options(uv_run_tests_a PRIVATE ${uv_cflags})
+  add_executable(uv_run_tests_static
+                 ${uv_test_sources} uv_win_longpath.manifest)
+  target_compile_definitions(uv_run_tests_static PRIVATE ${uv_defines})
+  target_compile_options(uv_run_tests_static PRIVATE ${uv_cflags})
   if(QEMU)
-    target_link_libraries(uv_run_tests_a uv_a ${uv_test_libraries} -static)
+    target_link_libraries(uv_run_tests_static
+                          uv_static ${uv_test_libraries} -static)
   else()
-    target_link_libraries(uv_run_tests_a uv_a ${uv_test_libraries})
+    target_link_libraries(uv_run_tests_static uv_static ${uv_test_libraries})
   endif()
-  add_test(NAME uv_test_a
-           COMMAND uv_run_tests_a
+  target_link_libraries(uv_run_tests_static uv_static ${uv_test_libraries})
+  add_test(NAME uv_test_static
+           COMMAND uv_run_tests_static
            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
 
@@ -596,27 +618,28 @@ if(UNIX OR MINGW)
   string(REGEX MATCH "([0-9]+)[.][0-9]+[.][0-9]+" PACKAGE_VERSION "${configure_ac}")
   set(UV_VERSION_MAJOR "${CMAKE_MATCH_1}")
   # The version in the filename is mirroring the behaviour of autotools.
-  set_target_properties(uv PROPERTIES
+  set_target_properties(uv_shared PROPERTIES
     VERSION ${UV_VERSION_MAJOR}.0.0
     SOVERSION ${UV_VERSION_MAJOR})
   set(includedir ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR})
   set(libdir ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR})
   set(prefix ${CMAKE_INSTALL_PREFIX})
   configure_file(libuv.pc.in libuv.pc @ONLY)
-  configure_file(libuv-static.pc.in libuv-static.pc @ONLY)
 
   install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
   install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR})
-  install(FILES ${PROJECT_BINARY_DIR}/libuv.pc ${PROJECT_BINARY_DIR}/libuv-static.pc
+  install(FILES ${PROJECT_BINARY_DIR}/libuv.pc
           DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
-  install(TARGETS uv LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
-  install(TARGETS uv_a ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  install(TARGETS uv_shared uv_static
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endif()
 
 if(MSVC)
   install(DIRECTORY include/ DESTINATION include)
   install(FILES LICENSE DESTINATION .)
-  install(TARGETS uv uv_a
+  install(TARGETS uv_shared uv_static
           RUNTIME DESTINATION lib/$<CONFIG>
           ARCHIVE DESTINATION lib/$<CONFIG>)
 endif()
