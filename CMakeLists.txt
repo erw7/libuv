@@ -39,6 +39,14 @@ check_c_compiler_flag(-Wno-unused-parameter UV_LINT_NO_UNUSED_PARAMETER)
 check_c_compiler_flag(-Wstrict-prototypes UV_LINT_STRICT_PROTOTYPES)
 check_c_compiler_flag(-Wextra UV_LINT_EXTRA)
 
+string(CONCAT msvc-utf8 $<
+  $<AND:
+    $<C_COMPILER_ID:MSVC>,
+    $<VERSION_GREATER:${MSVC_VERSION},1800>
+  >:/source-charset:utf-8
+>)
+add_compile_options(${msvc-utf8})
+
 set(lint-no-unused-parameter $<$<BOOL:${UV_LINT_NO_UNUSED_PARAMETER}>:-Wno-unused-parameter>) 
 set(lint-strict-prototypes $<$<BOOL:${UV_LINT_STRICT_PROTOTYPES}>:-Wstrict-prototypes>)
 set(lint-extra $<$<BOOL:${UV_LINT_EXTRA}>:-Wextra>)
@@ -252,6 +260,20 @@ if(APPLE OR CMAKE_SYSTEM_NAME MATCHES "DragonFly|FreeBSD|Linux|NetBSD|OpenBSD")
   list(APPEND uv_test_libraries util)
 endif()
 
+if(CYGWIN OR MSYS)
+  list(APPEND uv_defines _GNU_SOURCE)
+  list(APPEND uv_sources
+       src/unix/cygwin.c
+       src/unix/bsd-ifaddrs.c
+       src/unix/no-fsevents.c
+       src/unix/no-proctitle.c
+       src/unix/posix-hrtime.c
+       src/unix/posix-poll.c
+       src/unix/procfs-exepath.c
+       src/unix/sysinfo-loadavg.c
+       src/unix/sysinfo-memory.c)
+endif()
+
 add_library(uv SHARED ${uv_sources})
 target_compile_definitions(uv
   INTERFACE
@@ -267,6 +289,7 @@ target_include_directories(uv
   PRIVATE
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src>)
 target_link_libraries(uv ${uv_libraries})
+set_target_properties(uv PROPERTIES OUTPUT_NAME "uv")
 
 add_library(uv_a STATIC ${uv_sources})
 target_compile_definitions(uv_a PRIVATE ${uv_defines})
@@ -278,6 +301,10 @@ target_include_directories(uv_a
   PRIVATE
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src>)
 target_link_libraries(uv_a ${uv_libraries})
+set_target_properties(uv_a PROPERTIES OUTPUT_NAME "uv")
+if(MSVC)
+  set_target_properties(uv_a PROPERTIES PREFIX "lib")
+endif()
 
 if(LIBUV_BUILD_TESTS)
   list(APPEND uv_test_sources
@@ -478,8 +505,10 @@ if(UNIX)
   install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR})
   install(FILES ${PROJECT_BINARY_DIR}/libuv.pc
           DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
-  install(TARGETS uv LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
-  install(TARGETS uv_a ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  install(TARGETS uv uv_a
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endif()
 
 if(WIN32)
