@@ -418,7 +418,7 @@ if(BUILD_TESTING)
   endif()
 endif()
 
-if(UNIX)
+macro(install_libuv_pc)
   # Now for some gibbering horrors from beyond the stars...
   include(GNUInstallDirs)
   foreach(x ${uv_libraries})
@@ -426,18 +426,25 @@ if(UNIX)
   endforeach(x)
   file(STRINGS configure.ac configure_ac REGEX ^AC_INIT)
   string(REGEX MATCH [0-9]+[.][0-9]+[.][0-9]+ PACKAGE_VERSION "${configure_ac}")
+  configure_file(libuv.pc.in ${CMAKE_CURRENT_BINARY_DIR}/libuv.pc @ONLY)
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libuv.pc
+          DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+endmacro()
+
+if(UNIX)
   set(includedir ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR})
   set(libdir ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR})
   set(prefix ${CMAKE_INSTALL_PREFIX})
-  configure_file(libuv.pc.in ${CMAKE_CURRENT_BINARY_DIR}/libuv.pc @ONLY)
+  install_libuv_pc()
 
   install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
   install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR})
-  install(FILES LICENSE ${CMAKE_CURRENT_BINARY_DIR}/libuv.pc
-          DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
   install(TARGETS uv LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
   install(TARGETS uv_a ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 elseif(WIN32)
+  if(MINGW)
+    install_libuv_pc()
+  endif()
   install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_PREFIX}/include)
   install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_PREFIX})
   install(TARGETS uv
@@ -446,5 +453,7 @@ elseif(WIN32)
         ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib) # for static library
   install(TARGETS uv_a
         ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib) # for static library
-  install(FILES $<TARGET_PDB_FILE:uv> DESTINATION ${CMAKE_INSTALL_PREFIX}/bin OPTIONAL)
+  if(MSVC)
+    install(FILES $<TARGET_PDB_FILE:uv> DESTINATION ${CMAKE_INSTALL_PREFIX}/bin OPTIONAL)
+  endif()
 endif()
