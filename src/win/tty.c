@@ -67,6 +67,17 @@
 #define CURSOR_SIZE_SMALL     25
 #define CURSOR_SIZE_LARGE     100
 
+#define UV_TTY_MOUSE_ENC_X10      0x00
+#define UV_TTY_MOUSE_ENC_EXT      0x02
+#define UV_TTY_MOUSE_ENC_SGR      0x04
+#define UV_TTY_MOUSE_ENC_URXVT    0x08
+
+#define UV_TTY_MOUSE_MODE_NONE    0x00
+#define UV_TTY_MOUSE_MODE_X10     0x02
+#define UV_TTY_MOUSE_MODE_NORMAL  0x04
+#define UV_TTY_MOUSE_MODE_BT      0x08
+#define UV_TTY_MOUSE_MODE_ANY     0x10
+
 static void uv_tty_capture_initial_style(
     CONSOLE_SCREEN_BUFFER_INFO* screen_buffer_info,
     CONSOLE_CURSOR_INFO* cursor_info);
@@ -124,7 +135,8 @@ static int uv_tty_virtual_width = -1;
  * handle signalling SIGWINCH
  */
 
-static HANDLE uv__tty_console_handle = INVALID_HANDLE_VALUE;
+static HANDLE uv__tty_console_output_handle = INVALID_HANDLE_VALUE;
+static HANDLE uv__tty_console_input_handle = INVALID_HANDLE_VALUE;
 static int uv__tty_console_height = -1;
 static int uv__tty_console_width = -1;
 
@@ -158,21 +170,41 @@ static CONSOLE_CURSOR_INFO uv_tty_default_cursor_info;
 static uv_vtermstate_t uv__vterm_state = UV_UNCHECKED;
 static void uv__determine_vterm_state(HANDLE handle);
 
+static int uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_NONE;
+static int uv__tty_mouse_enc = UV_TTY_MOUSE_ENC_X10;
+
+typedef struct uv_tty_console_buffer_s {
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  PCHAR_INFO buffer;
+  COORD buffer_size;
+  PSMALL_RECT regions;
+  int num_regions;
+} uv_tty_console_buffer_t;
+
+static uv_tty_console_buffer_t* uv__tty_console_buffer = NULL;
+
 void uv_console_init(void) {
   if (uv_sem_init(&uv_tty_output_lock, 1))
     abort();
-  uv__tty_console_handle = CreateFileW(L"CONOUT$",
-                                       GENERIC_READ | GENERIC_WRITE,
-                                       FILE_SHARE_WRITE,
-                                       0,
-                                       OPEN_EXISTING,
-                                       0,
-                                       0);
-  if (uv__tty_console_handle != NULL) {
+  uv__tty_console_output_handle = CreateFileW(L"CONOUT$",
+                                              GENERIC_READ | GENERIC_WRITE,
+                                              FILE_SHARE_WRITE,
+                                              0,
+                                              OPEN_EXISTING,
+                                              0,
+                                              0);
+  if (uv__tty_console_output_handle != NULL) {
     QueueUserWorkItem(uv__tty_console_resize_message_loop_thread,
                       NULL,
                       WT_EXECUTELONGFUNCTION);
   }
+  uv__tty_console_input_handle = CreateFileW(L"CONIN$",
+                                             GENERIC_READ | GENERIC_WRITE,
+                                             FILE_SHARE_READ,
+                                             0,
+                                             OPEN_EXISTING,
+                                             0,
+                                             0);
 }
 
 
@@ -214,7 +246,7 @@ int uv_tty_init(uv_loop_t* loop, uv_tty_t* tty, uv_file fd, int unused) {
       return uv_translate_sys_error(GetLastError());
     }
 
-    /* Obtaion the cursor info with the output handle. */
+    /* Obtain the cursor info with the output handle. */
     if (!GetConsoleCursorInfo(handle, &cursor_info)) {
       return uv_translate_sys_error(GetLastError());
     }
@@ -619,17 +651,17 @@ static const char* get_vt100_fn_key(DWORD code, char shift, char ctrl,
 #define VK_CASE(vk, normal_str, shift_str, ctrl_str, shift_ctrl_str)          \
     case (vk):                                                                \
       if (shift && ctrl) {                                                    \
-        *len = sizeof shift_ctrl_str;                                         \
-        return "\033" shift_ctrl_str;                                         \
+        *len = (sizeof shift_ctrl_str) -1;                                    \
+        return shift_ctrl_str;                                                \
       } else if (shift) {                                                     \
-        *len = sizeof shift_str ;                                             \
-        return "\033" shift_str;                                              \
+        *len = (sizeof shift_str) -1;                                         \
+        return shift_str;                                                     \
       } else if (ctrl) {                                                      \
-        *len = sizeof ctrl_str;                                               \
-        return "\033" ctrl_str;                                               \
+        *len = (sizeof ctrl_str) -1;                                          \
+        return ctrl_str;                                                      \
       } else {                                                                \
-        *len = sizeof normal_str;                                             \
-        return "\033" normal_str;                                             \
+        *len = (sizeof normal_str) -1;                                        \
+        return normal_str;                                                    \
       }
 
   switch (code) {
@@ -637,40 +669,54 @@ static const char* get_vt100_fn_key(DWORD code, char shift, char ctrl,
      * keypad keys comply with linux console, modifiers comply with xterm
      * modifier usage. F1. f12 and shift-f1. f10 comply with linux console, f6.
      * f12 with and without modifiers comply with rxvt. */
-    VK_CASE(VK_INSERT,  "[2~",  "[2;2~", "[2;5~", "[2;6~")
-    VK_CASE(VK_END,     "[4~",  "[4;2~", "[4;5~", "[4;6~")
-    VK_CASE(VK_DOWN,    "[B",   "[1;2B", "[1;5B", "[1;6B")
-    VK_CASE(VK_NEXT,    "[6~",  "[6;2~", "[6;5~", "[6;6~")
-    VK_CASE(VK_LEFT,    "[D",   "[1;2D", "[1;5D", "[1;6D")
-    VK_CASE(VK_CLEAR,   "[G",   "[1;2G", "[1;5G", "[1;6G")
-    VK_CASE(VK_RIGHT,   "[C",   "[1;2C", "[1;5C", "[1;6C")
-    VK_CASE(VK_UP,      "[A",   "[1;2A", "[1;5A", "[1;6A")
-    VK_CASE(VK_HOME,    "[1~",  "[1;2~", "[1;5~", "[1;6~")
-    VK_CASE(VK_PRIOR,   "[5~",  "[5;2~", "[5;5~", "[5;6~")
-    VK_CASE(VK_DELETE,  "[3~",  "[3;2~", "[3;5~", "[3;6~")
-    VK_CASE(VK_NUMPAD0, "[2~",  "[2;2~", "[2;5~", "[2;6~")
-    VK_CASE(VK_NUMPAD1, "[4~",  "[4;2~", "[4;5~", "[4;6~")
-    VK_CASE(VK_NUMPAD2, "[B",   "[1;2B", "[1;5B", "[1;6B")
-    VK_CASE(VK_NUMPAD3, "[6~",  "[6;2~", "[6;5~", "[6;6~")
-    VK_CASE(VK_NUMPAD4, "[D",   "[1;2D", "[1;5D", "[1;6D")
-    VK_CASE(VK_NUMPAD5, "[G",   "[1;2G", "[1;5G", "[1;6G")
-    VK_CASE(VK_NUMPAD6, "[C",   "[1;2C", "[1;5C", "[1;6C")
-    VK_CASE(VK_NUMPAD7, "[A",   "[1;2A", "[1;5A", "[1;6A")
-    VK_CASE(VK_NUMPAD8, "[1~",  "[1;2~", "[1;5~", "[1;6~")
-    VK_CASE(VK_NUMPAD9, "[5~",  "[5;2~", "[5;5~", "[5;6~")
-    VK_CASE(VK_DECIMAL, "[3~",  "[3;2~", "[3;5~", "[3;6~")
-    VK_CASE(VK_F1,      "[[A",  "[23~",  "[11^",  "[23^" )
-    VK_CASE(VK_F2,      "[[B",  "[24~",  "[12^",  "[24^" )
-    VK_CASE(VK_F3,      "[[C",  "[25~",  "[13^",  "[25^" )
-    VK_CASE(VK_F4,      "[[D",  "[26~",  "[14^",  "[26^" )
-    VK_CASE(VK_F5,      "[[E",  "[28~",  "[15^",  "[28^" )
-    VK_CASE(VK_F6,      "[17~", "[29~",  "[17^",  "[29^" )
-    VK_CASE(VK_F7,      "[18~", "[31~",  "[18^",  "[31^" )
-    VK_CASE(VK_F8,      "[19~", "[32~",  "[19^",  "[32^" )
-    VK_CASE(VK_F9,      "[20~", "[33~",  "[20^",  "[33^" )
-    VK_CASE(VK_F10,     "[21~", "[34~",  "[21^",  "[34^" )
-    VK_CASE(VK_F11,     "[23~", "[23$",  "[23^",  "[23@" )
-    VK_CASE(VK_F12,     "[24~", "[24$",  "[24^",  "[24@" )
+    VK_CASE(VK_INSERT,    "\033[2~",  "\033[2;2~", "\033[2;5~", "\033[2;6~")
+    VK_CASE(VK_END,       "\033[4~",  "\033[4;2~", "\033[4;5~", "\033[4;6~")
+    VK_CASE(VK_DOWN,      "\033[B",   "\033[1;2B", "\033[1;5B", "\033[1;6B")
+    VK_CASE(VK_NEXT,      "\033[6~",  "\033[6;2~", "\033[6;5~", "\033[6;6~")
+    VK_CASE(VK_LEFT,      "\033[D",   "\033[1;2D", "\033[1;5D", "\033[1;6D")
+    VK_CASE(VK_CLEAR,     "\033[G",   "\033[1;2G", "\033[1;5G", "\033[1;6G")
+    VK_CASE(VK_RIGHT,     "\033[C",   "\033[1;2C", "\033[1;5C", "\033[1;6C")
+    VK_CASE(VK_UP,        "\033[A",   "\033[1;2A", "\033[1;5A", "\033[1;6A")
+    VK_CASE(VK_HOME,      "\033[1~",  "\033[1;2~", "\033[1;5~", "\033[1;6~")
+    VK_CASE(VK_PRIOR,     "\033[5~",  "\033[5;2~", "\033[5;5~", "\033[5;6~")
+    VK_CASE(VK_DELETE,    "\033[3~",  "\033[3;2~", "\033[3;5~", "\033[3;6~")
+    VK_CASE(VK_NUMPAD0,   "\033[2~",  "\033[2;2~", "\033[2;5~", "\033[2;6~")
+    VK_CASE(VK_NUMPAD1,   "\033[4~",  "\033[4;2~", "\033[4;5~", "\033[4;6~")
+    VK_CASE(VK_NUMPAD2,   "\033[B",   "\033[1;2B", "\033[1;5B", "\033[1;6B")
+    VK_CASE(VK_NUMPAD3,   "\033[6~",  "\033[6;2~", "\033[6;5~", "\033[6;6~")
+    VK_CASE(VK_NUMPAD4,   "\033[D",   "\033[1;2D", "\033[1;5D", "\033[1;6D")
+    VK_CASE(VK_NUMPAD5,   "\033[G",   "\033[1;2G", "\033[1;5G", "\033[1;6G")
+    VK_CASE(VK_NUMPAD6,   "\033[C",   "\033[1;2C", "\033[1;5C", "\033[1;6C")
+    VK_CASE(VK_NUMPAD7,   "\033[A",   "\033[1;2A", "\033[1;5A", "\033[1;6A")
+    VK_CASE(VK_NUMPAD8,   "\033[1~",  "\033[1;2~", "\033[1;5~", "\033[1;6~")
+    VK_CASE(VK_NUMPAD9,   "\033[5~",  "\033[5;2~", "\033[5;5~", "\033[5;6~")
+    VK_CASE(VK_DECIMAL,   "\033[3~",  "\033[3;2~", "\033[3;5~", "\033[3;6~")
+    VK_CASE(VK_F1,        "\033[[A",  "\033[23~",  "\033[11^",  "\033[23^" )
+    VK_CASE(VK_F2,        "\033[[B",  "\033[24~",  "\033[12^",  "\033[24^" )
+    VK_CASE(VK_F3,        "\033[[C",  "\033[25~",  "\033[13^",  "\033[25^" )
+    VK_CASE(VK_F4,        "\033[[D",  "\033[26~",  "\033[14^",  "\033[26^" )
+    VK_CASE(VK_F5,        "\033[[E",  "\033[28~",  "\033[15^",  "\033[28^" )
+    VK_CASE(VK_F6,        "\033[17~", "\033[29~",  "\033[17^",  "\033[29^" )
+    VK_CASE(VK_F7,        "\033[18~", "\033[31~",  "\033[18^",  "\033[31^" )
+    VK_CASE(VK_F8,        "\033[19~", "\033[32~",  "\033[19^",  "\033[32^" )
+    VK_CASE(VK_F9,        "\033[20~", "\033[33~",  "\033[20^",  "\033[33^" )
+    VK_CASE(VK_F10,       "\033[21~", "\033[34~",  "\033[21^",  "\033[34^" )
+    VK_CASE(VK_F11,       "\033[23~", "\033[23$",  "\033[23^",  "\033[23@" )
+    VK_CASE(VK_F12,       "\033[24~", "\033[24$",  "\033[24^",  "\033[24@" )
+    VK_CASE(VK_TAB,       NULL,       "\033[Z",    NULL,        NULL)  /* <S-Tab> => ^[[Z */
+    VK_CASE(VK_SPACE,     NULL,       NULL,        "\0",        NULL)  /* <C-Space> => ^@ */
+    VK_CASE(0x30,         NULL,       NULL,        "0",         NULL)
+    VK_CASE(0x31,         NULL,       NULL,        "1",         NULL)
+    VK_CASE(0x32,         NULL,       NULL,        "\0",        NULL)  /* <C-2> => ^@ */
+    VK_CASE(0x33,         NULL,       NULL,        "3",         NULL)
+    VK_CASE(0x34,         NULL,       NULL,        "4",         NULL)
+    VK_CASE(0x35,         NULL,       NULL,        "5",         NULL)
+    VK_CASE(0x36,         NULL,       NULL,        "\x1e",      NULL)  /* <C-6> => ^^ */
+    VK_CASE(0x37,         NULL,       NULL,        "7",         NULL)
+    VK_CASE(0x38,         NULL,       NULL,        "8",         NULL)
+    VK_CASE(0x39,         NULL,       NULL,        "9",         NULL)
+    VK_CASE(VK_OEM_MINUS, NULL,       NULL,        "\x1f",      NULL)  /* <C-_> => ^_ */
+    VK_CASE(VK_OEM_2,     NULL,       NULL,        "\x1f",      NULL)  /* <C-/> => ^_ */
 
     default:
       *len = 0;
@@ -680,10 +726,38 @@ static const char* get_vt100_fn_key(DWORD code, char shift, char ctrl,
 }
 
 
+static COORD uv_tty_make_mouse_coord(MOUSE_EVENT_RECORD mer) {
+  COORD result = {0, 0};
+  CONSOLE_SCREEN_BUFFER_INFO info;
+
+  if (!GetConsoleScreenBufferInfo(uv__tty_console_output_handle, &info)) {
+    return result;
+  }
+
+  result.X = mer.dwMousePosition.X + 1;
+  result.Y = mer.dwMousePosition.Y - info.srWindow.Top + 1;
+  if (uv__tty_mouse_enc == UV_TTY_MOUSE_ENC_X10 ||
+      uv__tty_mouse_enc == UV_TTY_MOUSE_ENC_EXT) {
+    result.X += 32;
+    result.Y += 32;
+  }
+  if (!uv__tty_mouse_enc) {
+    result.X = result.X > 255 ? 0 : result.X;
+    result.Y = result.Y > 255 ? 0 : result.Y;
+  }
+  if (uv__tty_mouse_enc == UV_TTY_MOUSE_ENC_EXT) {
+    result.X = result.X > 2047 ? 0 : result.X;
+    result.Y = result.Y > 2047 ? 0 : result.Y;
+  }
+
+  return result;
+}
+
 void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
     uv_req_t* req) {
   /* Shortcut for handle->tty.rd.last_input_record.Event.KeyEvent. */
 #define KEV handle->tty.rd.last_input_record.Event.KeyEvent
+#define MEV handle->tty.rd.last_input_record.Event.MouseEvent
 
   DWORD records_left, records_read;
   uv_buf_t buf;
@@ -741,8 +815,186 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
       }
       records_left--;
 
-      /* Ignore other events that are not key events. */
-      if (handle->tty.rd.last_input_record.EventType != KEY_EVENT) {
+      /* Ignore other events that are not key or mouse events. */
+      if (handle->tty.rd.last_input_record.EventType != KEY_EVENT &&
+          handle->tty.rd.last_input_record.EventType != MOUSE_EVENT) {
+        continue;
+      }
+
+      /* See https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h2-Mouse-Tracking */
+      if (handle->tty.rd.last_input_record.EventType == MOUSE_EVENT &&
+          uv__tty_mouse_mode) {
+        COORD pos;
+        char button, c, fbyte = 'M';
+        static COORD old_pos = {-1, -1};
+        static char old_button = -1;
+        static DWORD number_of_buttons = 0;
+        int i;
+
+        uv_sem_wait(&uv_tty_output_lock);
+        if (number_of_buttons == 0 &&
+            !GetNumberOfConsoleMouseButtons(&number_of_buttons)) {
+          number_of_buttons = 2;
+        }
+        button = old_button;
+
+        switch (MEV.dwEventFlags) {
+          case 0:
+            /* release mouse button event */
+            if ((MEV.dwButtonState & ((1 << 5) - 1)) == 0) {
+              /* Ignore if X10 cmpatible mode or button is not pressed */
+              if (old_button == -1 || uv__tty_mouse_mode == UV_TTY_MOUSE_MODE_X10) {
+                old_button = -1;
+                uv_sem_post(&uv_tty_output_lock);
+                continue;
+              }
+
+              if (uv__tty_mouse_enc == UV_TTY_MOUSE_ENC_SGR) {
+                fbyte = 'm';
+              } else {
+                button = 4;
+              }
+              old_button = -1;
+            } else {
+              /* press mouse button event */
+              if (button != -1) {
+                uv_sem_post(&uv_tty_output_lock);
+                continue;
+              }
+              switch (MEV.dwButtonState) {
+                case FROM_LEFT_1ST_BUTTON_PRESSED:
+                  button = 0;
+                  break;
+                case FROM_LEFT_2ND_BUTTON_PRESSED:
+                  button = 1;
+                  break;
+                case RIGHTMOST_BUTTON_PRESSED:
+                  button = number_of_buttons > 2 ? 2 : 1;
+                  break;
+                default:
+                  /* Ignore because does not support more than 4 buttons */
+                  old_button = -1;
+                  uv_sem_post(&uv_tty_output_lock);
+                  continue;
+              }
+              old_button = button;
+            }
+            pos = uv_tty_make_mouse_coord(MEV);
+            break;
+          case MOUSE_MOVED:
+            /* Ignore moved events in X10 compatibility mode and Normal
+            * tracking mode.
+            * Ignore moved events if button is not pressed in Button-event
+            * tracking mode. */
+            if (uv__tty_mouse_mode == UV_TTY_MOUSE_MODE_X10 ||
+                uv__tty_mouse_mode == UV_TTY_MOUSE_MODE_NORMAL ||
+                (uv__tty_mouse_mode == UV_TTY_MOUSE_MODE_BT && old_button == -1)) {
+              uv_sem_post(&uv_tty_output_lock);
+              continue;
+            }
+            /* Ignore moved events that occurred in same cell as before */
+            pos = uv_tty_make_mouse_coord(MEV);
+            if (pos.X == old_pos.Y && pos.Y == old_pos.Y) {
+              uv_sem_post(&uv_tty_output_lock);
+              continue;
+            }
+            button = old_button + 32;
+            break;
+          case MOUSE_WHEELED:
+            /* If high word of dwButtonState is positive then forward rotation,
+             * otherwise backword rotation. Therefore, backward rotation if the
+             * most significant bit is set, forward rotation otherwise.*/
+            if (((DWORD)1 << 31) & MEV.dwButtonState) {
+              button = 65;
+            } else {
+              button = 64;
+            }
+            pos = uv_tty_make_mouse_coord(MEV);
+            /* Wheel evnet doesn't cause a button relase event. */
+            old_button = -1;
+            break;
+          default:
+            uv_sem_post(&uv_tty_output_lock);
+            continue;
+        }
+
+        old_pos = pos;
+
+        if (uv__tty_mouse_mode != UV_TTY_MOUSE_MODE_X10) {
+          if (MEV.dwControlKeyState == SHIFT_PRESSED) {
+            button += 4;
+          }
+          if (MEV.dwControlKeyState == LEFT_ALT_PRESSED ||
+              MEV.dwControlKeyState == RIGHT_ALT_PRESSED) {
+            button += 8;
+          }
+          if (MEV.dwControlKeyState == LEFT_CTRL_PRESSED ||
+              MEV.dwControlKeyState == RIGHT_CTRL_PRESSED) {
+            button += 16;
+          }
+        }
+
+        if (uv__tty_mouse_enc != UV_TTY_MOUSE_ENC_SGR) {
+          /* Add ' '(32) to convert it to printable characters */
+          button += ' ';
+        }
+
+        switch (uv__tty_mouse_enc) {
+          case UV_TTY_MOUSE_ENC_X10:
+            /* CSI M CbCxCy */
+            snprintf(handle->tty.rd.last_key, 32, "\033[%c%c%c%c",
+                fbyte, button, (unsigned char)pos.X, (unsigned char)pos.Y);
+            break;
+          case UV_TTY_MOUSE_ENC_EXT:
+            /* CSI M CbCxCy */
+            snprintf(handle->tty.rd.last_key, 32, "\033[%c%c", fbyte, button);
+            i = strnlen(handle->tty.rd.last_key, 32);
+            if (pos.X < 256) {
+              /* ASCII */
+              handle->tty.rd.last_key[i] = (unsigned char)pos.X;
+              i++;
+            } else {
+              /* Encode upper 5bits to UTF-8 */
+              c = (unsigned char)(0xC0 + ((pos.X >> 6) & 0x1F));
+              handle->tty.rd.last_key[i] = c;
+              i++;
+              /* Encode lower 6bits to UTF-8 */
+              c = (unsigned char)(0x80 + (pos.X & 0x3F));
+              handle->tty.rd.last_key[i] = c;
+              i++;
+            }
+            if (pos.Y < 256) {
+              /* ASCII */
+              handle->tty.rd.last_key[i] = (unsigned char)pos.Y;
+              i++;
+            } else {
+              /* Encode upper 5bits to UTF-8 */
+              c = (unsigned char)(0xC0 + ((pos.Y >> 6) & 0x1F));
+              handle->tty.rd.last_key[i] = c;
+              i++;
+              /* Encode lower 6bits to UTF-8 */
+              c = (unsigned char)(0x80 + (pos.Y & 0x3F));
+              handle->tty.rd.last_key[i] = c;
+              i++;
+            }
+            handle->tty.rd.last_key[i] = '\0';
+            break;
+          case UV_TTY_MOUSE_ENC_SGR:
+            /* CSI  < Cb ; Cx ; Cy M or m */
+            snprintf(handle->tty.rd.last_key, 32, "\033[<%d;%d;%d%c",
+                button, pos.X, pos.Y, fbyte);
+            break;
+          case UV_TTY_MOUSE_ENC_URXVT:
+            /* CSI Cb ; Cx ; Cy M */
+            snprintf(handle->tty.rd.last_key, 32, "\033[%d;%d;%d%c",
+                button, pos.X, pos.Y, fbyte);
+            break;
+        }
+
+        handle->tty.rd.last_key_len = strnlen(handle->tty.rd.last_key, 32);
+        handle->tty.rd.last_key_offset = 0;
+
+        uv_sem_post(&uv_tty_output_lock);
         continue;
       }
 
@@ -782,7 +1034,9 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
       }
 
       if (KEV.uChar.UnicodeChar != 0) {
+        const char *vt100;
         int prefix_len, char_len;
+        size_t vt100_len;
 
         /* Character key pressed */
         if (KEV.uChar.UnicodeChar >= 0xD800 &&
@@ -801,6 +1055,23 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
           prefix_len = 1;
         } else {
           prefix_len = 0;
+        }
+
+        /* Processing in the case of <C-Space> and <C-Tab> */
+        vt100 = get_vt100_fn_key(KEV.wVirtualKeyCode,
+                                  !!(KEV.dwControlKeyState & SHIFT_PRESSED),
+                                  !!(KEV.dwControlKeyState & (
+                                    LEFT_CTRL_PRESSED |
+                                    RIGHT_CTRL_PRESSED)),
+                                  &vt100_len);
+
+        if (vt100) {
+          assert(prefix_len + vt100_len < sizeof handle->tty.rd.last_key);
+          memcpy(&handle->tty.rd.last_key[prefix_len], vt100, vt100_len);
+
+          handle->tty.rd.last_key_len = (unsigned char) (prefix_len + vt100_len);
+          handle->tty.rd.last_key_offset = 0;
+          continue;
         }
 
         if (KEV.uChar.UnicodeChar >= 0xDC00 &&
@@ -906,7 +1177,8 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
       }
 
       /* Apply dwRepeat from the last input record. */
-      if (--KEV.wRepeatCount > 0) {
+      if (handle->tty.rd.last_input_record.EventType == KEY_EVENT &&
+          --KEV.wRepeatCount > 0) {
         handle->tty.rd.last_key_offset = 0;
         continue;
       }
@@ -930,6 +1202,7 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
 
   DECREASE_PENDING_REQ_COUNT(handle);
 
+#undef MEV
 #undef KEV
 }
 
@@ -1120,9 +1393,12 @@ static int uv__cancel_read_console(uv_tty_t* handle) {
 }
 
 
+#define SRWIDTH(sr) ((sr).Right - (sr).Left + 1)
+#define SRHEIGHT(sr) ((sr).Bottom - (sr).Top + 1)
+
 static void uv_tty_update_virtual_window(CONSOLE_SCREEN_BUFFER_INFO* info) {
   uv_tty_virtual_width = info->dwSize.X;
-  uv_tty_virtual_height = info->srWindow.Bottom - info->srWindow.Top + 1;
+  uv_tty_virtual_height = SRHEIGHT(info->srWindow);
 
   /* Recompute virtual window offset row. */
   if (uv_tty_virtual_offset == -1) {
@@ -1653,6 +1929,302 @@ static int uv_tty_set_cursor_shape(uv_tty_t* handle, int style, DWORD* error) {
   return 0;
 }
 
+static void uv_tty_set_mouse_tracking_encoding(uv_tty_t* handle,
+                                         int enc,
+                                         BOOL enable) {
+  if (enable) {
+    switch (enc) {
+      case 1005:
+        uv__tty_mouse_enc = UV_TTY_MOUSE_ENC_EXT;
+        break;
+      case 1006:
+        uv__tty_mouse_enc = UV_TTY_MOUSE_ENC_SGR;
+        break;
+      case 1015:
+        uv__tty_mouse_enc = UV_TTY_MOUSE_ENC_URXVT;
+        break;
+    }
+  } else {
+    if ((enc == 1005 && uv__tty_mouse_enc == UV_TTY_MOUSE_ENC_EXT) ||
+        (enc == 1006 && uv__tty_mouse_enc == UV_TTY_MOUSE_ENC_SGR) ||
+        (enc == 1015 && uv__tty_mouse_enc == UV_TTY_MOUSE_ENC_URXVT)) {
+          uv__tty_mouse_enc = UV_TTY_MOUSE_ENC_X10;
+    }
+  }
+}
+
+static void uv_tty_set_mouse_tracking_mode(uv_tty_t* handle,
+                                         int mode,
+                                         BOOL enable,
+                                         DWORD* error) {
+  static DWORD dwSavedMode = 0;
+  DWORD dwMode;
+  if (!GetConsoleMode(uv__tty_console_input_handle, &dwMode)) {
+    uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_NONE;
+    *error = GetLastError();
+    return;
+  }
+
+  if (!dwSavedMode) {
+    dwSavedMode = dwMode;
+  }
+  if (enable) {
+    dwMode |= (ENABLE_MOUSE_INPUT | ENABLE_EXTENDED_FLAGS | ENABLE_WINDOW_INPUT);
+  } else {
+    dwMode = dwSavedMode;
+  }
+
+  if (!SetConsoleMode(uv__tty_console_input_handle, dwMode)) {
+    uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_NONE;
+    *error = GetLastError();
+    return;
+  }
+
+  if (enable) {
+    switch (mode) {
+      case 9:
+        uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_X10;
+        break;
+      case 1000:
+        uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_NORMAL;
+        break;
+      case 1002:
+        uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_BT;
+        break;
+      case 1003:
+        uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_ANY;
+        break;
+    }
+  } else {
+    uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_NONE;
+  }
+}
+
+static  int uv_tty_set_alternate_screen(uv_tty_t* handle, DWORD* error) {
+  DWORD num_cells;
+  COORD buffer_coord, size, origin = {0, 0};
+  SMALL_RECT read_region;
+  WORD y, y_incr;
+  int i;
+
+  if (uv__tty_console_buffer != NULL) {
+    return 0;
+  }
+
+  uv__tty_console_buffer =
+    (uv_tty_console_buffer_t*)uv__malloc(sizeof(uv_tty_console_buffer_t));
+  if (uv__tty_console_buffer == NULL) {
+    *error = ENOMEM;
+    return -1;
+  }
+  uv__tty_console_buffer->buffer = NULL;
+  uv__tty_console_buffer->regions = NULL;
+
+  if (!GetConsoleScreenBufferInfo(handle->handle,
+                                  &uv__tty_console_buffer->info)) {
+    *error = GetLastError();
+    goto cleanup;
+  }
+
+  /*
+   * Allocate a buffer large enough to hold the entire console screen
+   * buffer.  If this ConsoleBuffer structure has already been initialized
+   * with a buffer of the correct size, then just use that one.
+   */
+  uv__tty_console_buffer->buffer_size.X = uv__tty_console_buffer->info.dwSize.X;
+  uv__tty_console_buffer->buffer_size.Y = uv__tty_console_buffer->info.dwSize.Y;
+  num_cells = uv__tty_console_buffer->buffer_size.X *
+              uv__tty_console_buffer->buffer_size.Y;
+  uv__tty_console_buffer->buffer =
+    (PCHAR_INFO)uv__malloc(num_cells * sizeof(CHAR_INFO));
+  if (uv__tty_console_buffer->buffer == NULL) {
+    *error = ENOMEM;
+    goto cleanup;
+  }
+
+  /*
+   * We will now copy the console screen buffer into our buffer.
+   * ReadConsoleOutput() seems to be limited as far as how much you
+   * can read at a time.  Empirically, this number seems to be about
+   * 12000 cells (rows * columns).  Start at position (0, 0) and copy
+   * in chunks until it is all copied.  The chunks will all have the
+   * same horizontal characteristics, so initialize them now.  The
+   * height of each chunk will be (12000 / width).
+   */
+  buffer_coord.X = 0;
+  read_region.Left = 0;
+  read_region.Right = uv__tty_console_buffer->info.dwSize.X - 1;
+  y_incr = 12000 / uv__tty_console_buffer->info.dwSize.X;
+
+  uv__tty_console_buffer->num_regions =
+    (uv__tty_console_buffer->info.dwSize.Y + y_incr - 1) / y_incr;
+  uv__tty_console_buffer->regions =
+    (PSMALL_RECT)uv__malloc(uv__tty_console_buffer->num_regions *
+                            sizeof(SMALL_RECT));
+  if (uv__tty_console_buffer->regions == NULL) {
+    *error = ENOMEM;
+    goto cleanup;
+  }
+
+  for (i = 0, y = 0;
+       i < uv__tty_console_buffer->num_regions;
+       i++, y += y_incr) {
+    /*
+     * Read into position (0, y) in our buffer.
+     */
+    buffer_coord.Y = y;
+    /*
+     * Read the region whose top left corner is (0, y) and whose bottom
+     * right corner is (width - 1, y + y_incr - 1).  This should define
+     * a region of size width by y_incr.  Don't worry if this region is
+     * too large for the remaining buffer; it will be cropped.
+     */
+    read_region.Top = y;
+    read_region.Bottom = y + y_incr - 1;
+    if (!ReadConsoleOutputW(handle->handle,
+                            uv__tty_console_buffer->buffer,
+                            uv__tty_console_buffer->buffer_size,
+                            buffer_coord,
+                            &read_region)) {
+      *error = GetLastError();
+      goto cleanup;
+    }
+    uv__tty_console_buffer->regions[i] = read_region;
+  }
+
+  size.X = uv__tty_console_buffer->info.dwSize.X;
+  size.Y = SRHEIGHT(uv__tty_console_buffer->info.srWindow);
+  if (!SetConsoleScreenBufferSize(handle->handle, size)) {
+    *error = GetLastError();
+    goto cleanup;
+  }
+  if (!SetConsoleCursorPosition(handle->handle, origin)) {
+    *error = GetLastError();
+    goto cleanup;
+  }
+
+  return 0;
+
+ cleanup:
+  uv__free(uv__tty_console_buffer->buffer);
+  uv__free(uv__tty_console_buffer->regions);
+  uv__free(uv__tty_console_buffer);
+  uv__tty_console_buffer = NULL;
+  return -1;
+}
+
+static int uv_tty_reset_alternate_screen(uv_tty_t* handle, DWORD* error) {
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  DWORD num_cells, dummy;
+  COORD buffer_coord, window_size, origin = {0, 0};
+  SMALL_RECT write_region;
+  int i, ret = 0;
+  BOOL need_adjust = FALSE;
+
+  if (uv__tty_console_buffer == NULL) {
+    return -1;
+  }
+
+  /*
+   * Before restoring the buffer contents, clear the current buffer, and
+   * restore the cursor position and window information.  Doing this now
+   * prevents old buffer contents from "flashing" onto the screen.
+   */
+  if (!GetConsoleScreenBufferInfo(handle->handle, &info)) {
+    num_cells = info.dwSize.X * info.dwSize.Y;
+    FillConsoleOutputCharacterW(handle->handle,
+                                L'\x20',
+                                num_cells,
+                                origin,
+                                &dummy);
+    FillConsoleOutputAttribute(handle->handle,
+                               uv__tty_console_buffer->info.wAttributes,
+                               num_cells,
+                               origin,
+                               &dummy);
+
+    /*
+     * A buffer resize will fail if the current console window does
+     * not lie completely within that buffer.  To avoid this, we might
+     * have to move and possibly shrink the window.
+     */
+    if (info.srWindow.Right >= uv__tty_console_buffer->info.dwSize.X) {
+      window_size.X = SRWIDTH(info.srWindow);
+      if (window_size.X > uv__tty_console_buffer->info.dwSize.X) {
+        window_size.X = uv__tty_console_buffer->info.dwSize.X;
+      }
+      info.srWindow.Right = uv__tty_console_buffer->info.dwSize.X - 1;
+      info.srWindow.Left = uv__tty_console_buffer->info.dwSize.X -
+                           window_size.X;
+      need_adjust = TRUE;
+    }
+    if (info.srWindow.Bottom >= uv__tty_console_buffer->info.dwSize.Y) {
+      window_size.Y = SRHEIGHT(info.srWindow);
+      if (window_size.Y > uv__tty_console_buffer->info.dwSize.Y) {
+        window_size.Y = uv__tty_console_buffer->info.dwSize.Y;
+      }
+      info.srWindow.Bottom = uv__tty_console_buffer->info.dwSize.Y - 1;
+      info.srWindow.Top = uv__tty_console_buffer->info.dwSize.Y - window_size.Y;
+      need_adjust = TRUE;
+    }
+    if (need_adjust) {
+      SetConsoleWindowInfo(handle->handle, TRUE, &info.srWindow);
+    }
+  }
+
+  if (!SetConsoleScreenBufferSize(handle->handle,
+      uv__tty_console_buffer->info.dwSize)) {
+    *error = GetLastError();
+    ret = -1;
+    goto cleanup;
+  }
+
+  if (!SetConsoleTextAttribute(handle->handle,
+      uv__tty_console_buffer->info.wAttributes)) {
+    *error = GetLastError();
+    ret = -1;
+    goto cleanup;
+  }
+
+  if (!SetConsoleCursorPosition(handle->handle,
+      uv__tty_console_buffer->info.dwCursorPosition)) {
+    *error = GetLastError();
+    ret = -1;
+    goto cleanup;
+  }
+
+  if (!SetConsoleWindowInfo(handle->handle,
+      TRUE, &uv__tty_console_buffer->info.srWindow)) {
+    *error = GetLastError();
+    ret = -1;
+    goto cleanup;
+  }
+
+  /*
+   * Restore the screen buffer contents.
+   */
+  for (i = 0; i < uv__tty_console_buffer->num_regions; i++) {
+    buffer_coord.X = uv__tty_console_buffer->regions[i].Left;
+    buffer_coord.Y = uv__tty_console_buffer->regions[i].Top;
+    write_region = uv__tty_console_buffer->regions[i];
+    if (!WriteConsoleOutputW(handle->handle,
+                             uv__tty_console_buffer->buffer,
+                             uv__tty_console_buffer->buffer_size,
+                             buffer_coord,
+                             &write_region)) {
+      *error = GetLastError();
+      ret = -1;
+      goto cleanup;
+    }
+  }
+
+ cleanup:
+  uv__free(uv__tty_console_buffer->buffer);
+  uv__free(uv__tty_console_buffer->regions);
+  uv__free(uv__tty_console_buffer);
+  uv__tty_console_buffer = NULL;
+  return ret;
+}
 
 static int uv_tty_write_bufs(uv_tty_t* handle,
                              const uv_buf_t bufs[],
@@ -1976,19 +2548,47 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
             switch (utf8_codepoint) {
               case 'l':
                 /* Hide the cursor */
-                if (handle->tty.wr.ansi_csi_argc == 1 &&
-                    handle->tty.wr.ansi_csi_argv[0] == 25) {
-                  FLUSH_TEXT();
-                  uv_tty_set_cursor_visibility(handle, 0, error);
+                if (handle->tty.wr.ansi_csi_argc == 1) {
+                  int argv0 = handle->tty.wr.ansi_csi_argv[0];
+                  if  (argv0 == 25) {
+                    FLUSH_TEXT();
+                    uv_tty_set_cursor_visibility(handle, 0, error);
+                  }
+                  if (argv0 == 47) {
+                    uv_tty_reset_alternate_screen(handle, error);
+                  }
+                  /* unset the mouse tracking */
+                  if (argv0 == 9 || argv0 == 1005 || argv0 == 1006 || argv0 == 1015) {
+                    FLUSH_TEXT();
+                    uv_tty_set_mouse_tracking_encoding(handle, argv0, FALSE);
+                  }
+                  if (argv0 == 1000 || argv0 == 1002 || argv0 == 1003) {
+                    FLUSH_TEXT();
+                    uv_tty_set_mouse_tracking_mode(handle, argv0, FALSE, error);
+                  }
                 }
                 break;
 
               case 'h':
                 /* Show the cursor */
-                if (handle->tty.wr.ansi_csi_argc == 1 &&
-                    handle->tty.wr.ansi_csi_argv[0] == 25) {
-                  FLUSH_TEXT();
-                  uv_tty_set_cursor_visibility(handle, 1, error);
+                if (handle->tty.wr.ansi_csi_argc == 1) {
+                  int argv0 = handle->tty.wr.ansi_csi_argv[0];
+                  if (argv0 == 25) {
+                    FLUSH_TEXT();
+                    uv_tty_set_cursor_visibility(handle, 1, error);
+                  }
+                  if (argv0 == 47) {
+                    uv_tty_set_alternate_screen(handle, error);
+                  }
+                  /* set the mouse tracking */
+                  if (argv0 == 9 || argv0 == 1005 || argv0 == 1006 || argv0 == 1015) {
+                    FLUSH_TEXT();
+                    uv_tty_set_mouse_tracking_encoding(handle, argv0, TRUE);
+                  }
+                  if (argv0 == 1000 || argv0 == 1002 || argv0 == 1003) {
+                    FLUSH_TEXT();
+                    uv_tty_set_mouse_tracking_mode(handle, argv0, TRUE, error);
+                  }
                 }
                 break;
             }
@@ -2403,11 +3003,11 @@ static DWORD WINAPI uv__tty_console_resize_message_loop_thread(void* param) {
   CONSOLE_SCREEN_BUFFER_INFO sb_info;
   MSG msg;
 
-  if (!GetConsoleScreenBufferInfo(uv__tty_console_handle, &sb_info))
+  if (!GetConsoleScreenBufferInfo(uv__tty_console_output_handle, &sb_info))
     return 0;
 
   uv__tty_console_width = sb_info.dwSize.X;
-  uv__tty_console_height = sb_info.srWindow.Bottom - sb_info.srWindow.Top + 1;
+  uv__tty_console_height = SRHEIGHT(sb_info.srWindow);
 
   if (pSetWinEventHook == NULL)
     return 0;
@@ -2438,15 +3038,31 @@ static void CALLBACK uv__tty_console_resize_event(HWINEVENTHOOK hWinEventHook,
   CONSOLE_SCREEN_BUFFER_INFO sb_info;
   int width, height;
 
-  if (!GetConsoleScreenBufferInfo(uv__tty_console_handle, &sb_info))
+  uv_sem_wait(&uv_tty_output_lock);
+  if (!GetConsoleScreenBufferInfo(uv__tty_console_output_handle, &sb_info)) {
+    uv_sem_post(&uv_tty_output_lock);
     return;
+  }
 
-  width = sb_info.dwSize.X;
+  if (uv__tty_console_buffer == NULL) {
+    width = sb_info.dwSize.X;
+  } else {
+    width = sb_info.srWindow.Right - sb_info.srWindow.Left + 1;
+  }
   height = sb_info.srWindow.Bottom - sb_info.srWindow.Top + 1;
 
   if (width != uv__tty_console_width || height != uv__tty_console_height) {
     uv__tty_console_width = width;
     uv__tty_console_height = height;
+    if (uv__tty_console_buffer != NULL) {
+      COORD buffer_size;
+      buffer_size.X = width;
+      buffer_size.Y = height;
+      SetConsoleScreenBufferSize(uv__tty_console_output_handle, buffer_size);
+    }
+    uv_sem_post(&uv_tty_output_lock);
     uv__signal_dispatch(SIGWINCH);
+    return;
   }
+  uv_sem_post(&uv_tty_output_lock);
 }
