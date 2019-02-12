@@ -728,7 +728,7 @@ static const char* get_vt100_fn_key(DWORD code, char shift, char ctrl,
     VK_CASE_WITHOUT_ESC(0x30,          NULL,  NULL,     "0",     NULL)
     VK_CASE_WITHOUT_ESC(0x31,          NULL,  NULL,     "1",     NULL)
     /* <C-2> => ^@ */
-    VK_CASE_WITHOUT_ESC(0x32,          NULL,  NULL,     "\0",    NULL)
+    VK_CASE_WITHOUT_ESC(0x32,          "\0",  NULL,     "\0",    NULL)
     VK_CASE_WITHOUT_ESC(0x33,          NULL,  NULL,     "3",     NULL)
     VK_CASE_WITHOUT_ESC(0x34,          NULL,  NULL,     "4",     NULL)
     VK_CASE_WITHOUT_ESC(0x35,          NULL,  NULL,     "5",     NULL)
