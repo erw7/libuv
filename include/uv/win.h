@@ -498,7 +498,7 @@ typedef struct {
       uv_buf_t read_line_buffer;                                              \
       HANDLE read_raw_wait;                                                   \
       /* Fields used for translating win keystrokes into vt100 characters */  \
-      char last_key[8];                                                       \
+      char last_key[32];                                                      \
       unsigned char last_key_offset;                                          \
       unsigned char last_key_len;                                             \
       WCHAR last_utf16_high_surrogate;                                        \
