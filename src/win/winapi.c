@@ -45,12 +45,20 @@ sPowerRegisterSuspendResumeNotification pPowerRegisterSuspendResumeNotification;
 /* User32.dll function pointer */
 sSetWinEventHook pSetWinEventHook;
 
+/* authz.dll function pointer */
+sAuthzInitializeResourceManager pAuthzInitializeResourceManager;
+sAuthzInitializeContextFromSid pAuthzInitializeContextFromSid;
+sAuthzAccessCheck pAuthzAccessCheck;
+sAuthzFreeContext pAuthzFreeContext;
+sAuthzFreeResourceManager pAuthzFreeResourceManager;
+
 
 void uv_winapi_init(void) {
   HMODULE ntdll_module;
   HMODULE powrprof_module;
   HMODULE user32_module;
   HMODULE kernel32_module;
+  HMODULE authz_module;
 
   ntdll_module = GetModuleHandleA("ntdll.dll");
   if (ntdll_module == NULL) {
@@ -134,4 +142,40 @@ void uv_winapi_init(void) {
     pSetWinEventHook = (sSetWinEventHook)
       GetProcAddress(user32_module, "SetWinEventHook");
   }
+
+  authz_module = LoadLibraryA("authz.dll");
+  if (authz_module == NULL) {
+    uv_fatal_error(GetLastError(), "GetModuleHandleA");
+  }
+
+  pAuthzInitializeResourceManager = (sAuthzInitializeResourceManager)
+    GetProcAddress(authz_module, "AuthzInitializeResourceManager");
+  if (pAuthzInitializeResourceManager == NULL) {
+    uv_fatal_error(GetLastError(), "GetProceAddress");
+  }
+
+  pAuthzInitializeContextFromSid = (sAuthzInitializeContextFromSid)
+    GetProcAddress(authz_module, "AuthzInitializeContextFromSid");
+  if (pAuthzInitializeContextFromSid == NULL) {
+    uv_fatal_error(GetLastError(), "GetProceAddress");
+  }
+
+  pAuthzAccessCheck =
+    (sAuthzAccessCheck)GetProcAddress(authz_module, "AuthzAccessCheck");
+  if (pAuthzAccessCheck == NULL) {
+    uv_fatal_error(GetLastError(), "GetProceAddress");
+  }
+
+  pAuthzFreeContext =
+    (sAuthzFreeContext)GetProcAddress(authz_module, "AuthzFreeContext");
+  if (pAuthzFreeContext == NULL) {
+    uv_fatal_error(GetLastError(), "GetProceAddress");
+  }
+
+  pAuthzFreeResourceManager = (sAuthzFreeResourceManager)
+    GetProcAddress(authz_module, "AuthzFreeResourceManager");
+  if (pAuthzFreeResourceManager == NULL) {
+    uv_fatal_error(GetLastError(), "GetProceAddress");
+  }
+
 }

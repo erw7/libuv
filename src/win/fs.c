@@ -36,6 +36,9 @@
 #include "handle-inl.h"
 #include "fs-fd-hash-inl.h"
 
+#include <aclapi.h>
+#include <wincrypt.h>
+
 
 #define UV_FS_FREE_PATHS         0x0002
 #define UV_FS_FREE_PTR           0x0008
@@ -117,6 +120,11 @@ static void uv__filetime_to_timespec(uv_timespec_t *ts, int64_t filetime) {
   ((c) >= L'A' && (c) <= L'Z'))
 
 #define MIN(a,b) (((a) < (b)) ? (a) : (b))
+/* Max user name length, from iphlpai.h */
+#ifndef UNLEN
+# define UNLEN 256
+#endif
+
 
 const WCHAR JUNCTION_PREFIX[] = L"\\??\\";
 const WCHAR JUNCTION_PREFIX_LEN = 4;
@@ -2134,28 +2142,135 @@ static void fs__sendfile(uv_fs_t* req) {
 
 
 static void fs__access(uv_fs_t* req) {
-  DWORD attr = GetFileAttributesW(req->file.pathw);
+  DWORD err;
+  PACL dacl;
+  PSECURITY_DESCRIPTOR security_descriptor = NULL;
+  wchar_t username[UNLEN + 1];
+  DWORD bufsize;
+  PSID sid = NULL;
+  DWORD sid_size = 0;
+  wchar_t *domain_name = NULL;
+  DWORD domain_name_size = 0;
+  SID_NAME_USE sid_type;
+  AUTHZ_RESOURCE_MANAGER_HANDLE manager_handle = INVALID_HANDLE_VALUE;
+  LUID unused_id = {};
+  AUTHZ_CLIENT_CONTEXT_HANDLE
+    authz_client_context_handle = INVALID_HANDLE_VALUE;
+  AUTHZ_ACCESS_REQUEST access_request = {};
+  AUTHZ_ACCESS_REPLY access_reply = {};
+  BYTE buffer[1024] = {};
+  ACCESS_MASK mask;
 
-  if (attr == INVALID_FILE_ATTRIBUTES) {
-    SET_REQ_WIN32_ERROR(req, GetLastError());
+  err = GetNamedSecurityInfoW(req->file.pathw,
+                              SE_FILE_OBJECT,
+                              DACL_SECURITY_INFORMATION |
+                              OWNER_SECURITY_INFORMATION |
+                              GROUP_SECURITY_INFORMATION,
+                              NULL,
+                              NULL,
+                              &dacl,
+                              NULL,
+                              &security_descriptor);
+  if (err != ERROR_SUCCESS) {
+    SET_REQ_WIN32_ERROR(req, err);
     return;
   }
 
-  /*
-   * Access is possible if
-   * - write access wasn't requested,
-   * - or the file isn't read-only,
-   * - or it's a directory.
-   * (Directories cannot be read-only on Windows.)
-   */
-  if (!(req->fs.info.mode & W_OK) ||
-      !(attr & FILE_ATTRIBUTE_READONLY) ||
-      (attr & FILE_ATTRIBUTE_DIRECTORY)) {
+  /* F_OK */
+  if (!(req->fs.info.mode)) {
+    SET_REQ_RESULT(req, 0);
+    goto cleanup;
+  }
+
+  bufsize = ARRAY_SIZE(username);
+  if (!GetUserNameW(username, &bufsize)) {
+    SET_REQ_WIN32_ERROR(req, GetLastError());
+    goto cleanup;
+  }
+
+  LookupAccountNameW(NULL, username, sid, &sid_size, domain_name,
+                    &domain_name_size, &sid_type);
+  err = GetLastError();
+  if (err != ERROR_INSUFFICIENT_BUFFER) {
+    SET_REQ_WIN32_ERROR(req, err);
+    goto cleanup;
+  }
+  sid = (PSID)uv__calloc(sid_size, sizeof(BYTE));
+  if (sid == NULL) {
+    SET_REQ_WIN32_ERROR(req, GetLastError());
+    goto cleanup;
+  }
+  domain_name = (wchar_t*)uv__calloc(domain_name_size, sizeof(*domain_name));
+  if (domain_name == NULL) {
+    SET_REQ_WIN32_ERROR(req, GetLastError());
+    goto cleanup;
+  }
+  if (!LookupAccountNameW(NULL, username, sid, &sid_size, domain_name,
+     &domain_name_size, &sid_type)) {
+    SET_REQ_WIN32_ERROR(req, GetLastError());
+    goto cleanup;
+  }
+
+  if (!pAuthzInitializeResourceManager(AUTHZ_RM_FLAG_NO_AUDIT,
+                                     NULL,
+                                     NULL,
+                                     NULL,
+                                     NULL,
+                                     &manager_handle)) {
+    SET_REQ_WIN32_ERROR(req, GetLastError());
+    goto cleanup;
+  }
+
+  if (!pAuthzInitializeContextFromSid(0, sid, manager_handle, NULL, unused_id,
+                                    NULL, &authz_client_context_handle)) {
+    SET_REQ_WIN32_ERROR(req, GetLastError());
+    goto cleanup;
+  }
+
+  access_request.DesiredAccess = MAXIMUM_ALLOWED;
+  access_request.PrincipalSelfSid = NULL;
+  access_request.ObjectTypeList = NULL;
+  access_request.ObjectTypeListLength = 0;
+  access_request.OptionalArguments = NULL;
+
+  access_reply.ResultListLength = 1;
+  access_reply.GrantedAccessMask = (PACCESS_MASK)(buffer);
+  access_reply.Error = (PDWORD)(buffer + sizeof(ACCESS_MASK));
+
+  if (!pAuthzAccessCheck(0, authz_client_context_handle, &access_request,
+                         NULL, security_descriptor, NULL, 0, &access_reply, NULL)) {
+    SET_REQ_WIN32_ERROR(req, GetLastError());
+    goto cleanup;
+  }
+
+  mask = *(PACCESS_MASK)(access_reply.GrantedAccessMask);
+  if ((!(req->fs.info.mode & R_OK) ||
+        ((req->fs.info.mode & R_OK) &&
+        (((mask & GENERIC_READ) == GENERIC_READ) ||
+        ((mask & FILE_GENERIC_READ) == FILE_GENERIC_READ)))) &&
+      (!(req->fs.info.mode & W_OK) ||
+        ((req->fs.info.mode & W_OK) &&
+        (((mask & GENERIC_WRITE) == GENERIC_WRITE) ||
+        ((mask & FILE_GENERIC_WRITE) == FILE_GENERIC_WRITE)))) &&
+      (!(req->fs.info.mode & X_OK) ||
+        ((req->fs.info.mode & X_OK) &&
+        (((mask & GENERIC_EXECUTE) == GENERIC_EXECUTE) ||
+        ((mask & FILE_GENERIC_EXECUTE) == FILE_GENERIC_EXECUTE))))) {
     SET_REQ_RESULT(req, 0);
   } else {
     SET_REQ_WIN32_ERROR(req, UV_EPERM);
   }
 
+cleanup:
+  if (authz_client_context_handle != INVALID_HANDLE_VALUE) {
+    pAuthzFreeContext(authz_client_context_handle);
+  }
+  if (manager_handle != INVALID_HANDLE_VALUE) {
+    pAuthzFreeResourceManager(manager_handle);
+  }
+  uv__free(domain_name);
+  uv__free(sid);
+  LocalFree(security_descriptor);
 }
 
 

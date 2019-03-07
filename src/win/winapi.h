@@ -4739,6 +4739,71 @@ typedef struct _TCP_INITIAL_RTO_PARAMETERS {
 # define  SIO_TCP_INITIAL_RTO _WSAIOW(IOC_VENDOR,17)
 #endif
 
+/* form authz.h */
+#define AUTHZ_RM_FLAG_NO_AUDIT 0x1
+
+DECLARE_HANDLE(AUTHZ_ACCESS_CHECK_RESULTS_HANDLE);
+DECLARE_HANDLE(AUTHZ_CLIENT_CONTEXT_HANDLE);
+DECLARE_HANDLE(AUTHZ_RESOURCE_MANAGER_HANDLE);
+DECLARE_HANDLE(AUTHZ_AUDIT_EVENT_HANDLE);
+
+typedef AUTHZ_CLIENT_CONTEXT_HANDLE *PAUTHZ_CLIENT_CONTEXT_HANDLE;
+typedef AUTHZ_RESOURCE_MANAGER_HANDLE *PAUTHZ_RESOURCE_MANAGER_HANDLE;
+typedef AUTHZ_ACCESS_CHECK_RESULTS_HANDLE *PAUTHZ_ACCESS_CHECK_RESULTS_HANDLE;
+
+typedef WINBOOL (CALLBACK *PFN_AUTHZ_DYNAMIC_ACCESS_CHECK) (AUTHZ_CLIENT_CONTEXT_HANDLE hAuthzClientContext, PACE_HEADER pAce, PVOID pArgs, PBOOL pbAceApplicable);
+typedef WINBOOL (CALLBACK *PFN_AUTHZ_COMPUTE_DYNAMIC_GROUPS) (AUTHZ_CLIENT_CONTEXT_HANDLE hAuthzClientContext, PVOID Args, PSID_AND_ATTRIBUTES *pSidAttrArray, PDWORD pSidCount, PSID_AND_ATTRIBUTES *pRestrictedSidAttrArray, PDWORD pRestrictedSidCount);
+typedef VOID (CALLBACK *PFN_AUTHZ_FREE_DYNAMIC_GROUPS) (PSID_AND_ATTRIBUTES pSidAttrArray);
+
+typedef struct _AUTHZ_ACCESS_REQUEST {
+  ACCESS_MASK DesiredAccess;
+  PSID PrincipalSelfSid;
+  POBJECT_TYPE_LIST ObjectTypeList;
+  DWORD ObjectTypeListLength;
+  PVOID OptionalArguments;
+} AUTHZ_ACCESS_REQUEST,*PAUTHZ_ACCESS_REQUEST;
+
+typedef struct _AUTHZ_ACCESS_REPLY {
+  DWORD ResultListLength;
+  PACCESS_MASK GrantedAccessMask;
+  PDWORD SaclEvaluationResults;
+  PDWORD Error;
+} AUTHZ_ACCESS_REPLY,*PAUTHZ_ACCESS_REPLY;
+
+typedef BOOL (WINAPI *sAuthzInitializeResourceManager)
+             (DWORD Flags,
+              PFN_AUTHZ_DYNAMIC_ACCESS_CHECK   pfnDynamicAccessCheck,
+              PFN_AUTHZ_COMPUTE_DYNAMIC_GROUPS pfnComputeDynamicGroups,
+              PFN_AUTHZ_FREE_DYNAMIC_GROUPS    pfnFreeDynamicGroups,
+              PCWSTR                           szResourceManagerName,
+              PAUTHZ_RESOURCE_MANAGER_HANDLE   phAuthzResourceManager);
+
+typedef BOOL (WINAPI *sAuthzInitializeContextFromSid)
+             (DWORD                         Flags,
+              PSID                          UserSid,
+              AUTHZ_RESOURCE_MANAGER_HANDLE hAuthzResourceManager,
+              PLARGE_INTEGER                pExpirationTime,
+              LUID                          Identifier,
+              PVOID                         DynamicGroupArgs,
+              PAUTHZ_CLIENT_CONTEXT_HANDLE  phAuthzClientContext);
+
+typedef BOOL (WINAPI *sAuthzAccessCheck)
+             (DWORD                              Flags,
+              AUTHZ_CLIENT_CONTEXT_HANDLE        hAuthzClientContext,
+              PAUTHZ_ACCESS_REQUEST              pRequest,
+              AUTHZ_AUDIT_EVENT_HANDLE           hAuditEvent,
+              PSECURITY_DESCRIPTOR               pSecurityDescriptor,
+              PSECURITY_DESCRIPTOR               *OptionalSecurityDescriptorArray,
+              DWORD                              OptionalSecurityDescriptorCount,
+              PAUTHZ_ACCESS_REPLY                pReply,
+              PAUTHZ_ACCESS_CHECK_RESULTS_HANDLE phAccessCheckResults);
+
+typedef BOOL (WINAPI *sAuthzFreeContext)
+             (AUTHZ_CLIENT_CONTEXT_HANDLE hAuthzClientContext);
+
+typedef BOOL (WINAPI *sAuthzFreeResourceManager)
+             (AUTHZ_RESOURCE_MANAGER_HANDLE hAuthzResourceManager);
+
 /* Ntdll function pointers */
 extern sRtlGetVersion pRtlGetVersion;
 extern sRtlNtStatusToDosError pRtlNtStatusToDosError;
@@ -4758,5 +4823,12 @@ extern sPowerRegisterSuspendResumeNotification pPowerRegisterSuspendResumeNotifi
 
 /* User32.dll function pointer */
 extern sSetWinEventHook pSetWinEventHook;
+
+/* authz.dll function pointer */
+extern sAuthzInitializeResourceManager pAuthzInitializeResourceManager;
+extern sAuthzInitializeContextFromSid pAuthzInitializeContextFromSid;
+extern sAuthzAccessCheck pAuthzAccessCheck;
+extern sAuthzFreeContext pAuthzFreeContext;
+extern sAuthzFreeResourceManager pAuthzFreeResourceManager;
 
 #endif /* UV_WIN_WINAPI_H_ */
