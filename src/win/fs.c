@@ -2145,13 +2145,9 @@ static void fs__access(uv_fs_t* req) {
   DWORD err;
   PACL dacl;
   PSECURITY_DESCRIPTOR security_descriptor = NULL;
-  wchar_t username[UNLEN + 1];
-  DWORD bufsize;
-  PSID sid = NULL;
+  PTOKEN_USER token_user = NULL;
   DWORD sid_size = 0;
-  wchar_t *domain_name = NULL;
-  DWORD domain_name_size = 0;
-  SID_NAME_USE sid_type;
+  HANDLE token_handle = INVALID_HANDLE_VALUE;
   AUTHZ_RESOURCE_MANAGER_HANDLE manager_handle = INVALID_HANDLE_VALUE;
   LUID unused_id = {};
   AUTHZ_CLIENT_CONTEXT_HANDLE
@@ -2182,31 +2178,19 @@ static void fs__access(uv_fs_t* req) {
     goto cleanup;
   }
 
-  bufsize = ARRAY_SIZE(username);
-  if (!GetUserNameW(username, &bufsize)) {
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token_handle)) {
     SET_REQ_WIN32_ERROR(req, GetLastError());
     goto cleanup;
   }
 
-  LookupAccountNameW(NULL, username, sid, &sid_size, domain_name,
-                    &domain_name_size, &sid_type);
-  err = GetLastError();
-  if (err != ERROR_INSUFFICIENT_BUFFER) {
-    SET_REQ_WIN32_ERROR(req, err);
-    goto cleanup;
-  }
-  sid = (PSID)uv__calloc(sid_size, sizeof(BYTE));
-  if (sid == NULL) {
+  GetTokenInformation(token_handle, TokenUser, NULL, 0, &sid_size);
+  token_user = (PTOKEN_USER)uv__calloc(1, sid_size);
+  if (token_user == NULL) {
     SET_REQ_WIN32_ERROR(req, GetLastError());
     goto cleanup;
   }
-  domain_name = (wchar_t*)uv__calloc(domain_name_size, sizeof(*domain_name));
-  if (domain_name == NULL) {
-    SET_REQ_WIN32_ERROR(req, GetLastError());
-    goto cleanup;
-  }
-  if (!LookupAccountNameW(NULL, username, sid, &sid_size, domain_name,
-     &domain_name_size, &sid_type)) {
+  if (!GetTokenInformation(token_handle, TokenUser, token_user,
+                           sid_size, &sid_size)) {
     SET_REQ_WIN32_ERROR(req, GetLastError());
     goto cleanup;
   }
@@ -2221,8 +2205,9 @@ static void fs__access(uv_fs_t* req) {
     goto cleanup;
   }
 
-  if (!pAuthzInitializeContextFromSid(0, sid, manager_handle, NULL, unused_id,
-                                    NULL, &authz_client_context_handle)) {
+  if (!pAuthzInitializeContextFromSid(0, token_user->User.Sid,
+                                      manager_handle, NULL, unused_id,
+                                      NULL, &authz_client_context_handle)) {
     SET_REQ_WIN32_ERROR(req, GetLastError());
     goto cleanup;
   }
@@ -2268,8 +2253,10 @@ cleanup:
   if (manager_handle != INVALID_HANDLE_VALUE) {
     pAuthzFreeResourceManager(manager_handle);
   }
-  uv__free(domain_name);
-  uv__free(sid);
+  if (token_handle != INVALID_HANDLE_VALUE) {
+    CloseHandle(token_handle);
+  }
+  uv__free(token_user);
   LocalFree(security_descriptor);
 }
 
