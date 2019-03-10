@@ -2165,7 +2165,11 @@ static void fs__access(uv_fs_t* req) {
                               NULL,
                               &security_descriptor);
   if (err != ERROR_SUCCESS) {
-    SET_REQ_WIN32_ERROR(req, err);
+    if (!(req->fs.info.mode) && err == ERROR_FILE_NOT_FOUND) {
+      SET_REQ_RESULT(req, 0);
+    } else {
+      SET_REQ_WIN32_ERROR(req, err);
+    }
     return;
   }
 
