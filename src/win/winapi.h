@@ -4777,10 +4777,9 @@ typedef BOOL (WINAPI *sAuthzInitializeResourceManager)
               PFN_AUTHZ_FREE_DYNAMIC_GROUPS    pfnFreeDynamicGroups,
               PCWSTR                           szResourceManagerName,
               PAUTHZ_RESOURCE_MANAGER_HANDLE   phAuthzResourceManager);
-
-typedef BOOL (WINAPI *sAuthzInitializeContextFromSid)
+typedef BOOL (WINAPI *sAuthzInitializeContextFromToken)
              (DWORD                         Flags,
-              PSID                          UserSid,
+              HANDLE                        TokenHandle,
               AUTHZ_RESOURCE_MANAGER_HANDLE hAuthzResourceManager,
               PLARGE_INTEGER                pExpirationTime,
               LUID                          Identifier,
@@ -4826,7 +4825,7 @@ extern sSetWinEventHook pSetWinEventHook;
 
 /* authz.dll function pointer */
 extern sAuthzInitializeResourceManager pAuthzInitializeResourceManager;
-extern sAuthzInitializeContextFromSid pAuthzInitializeContextFromSid;
+extern sAuthzInitializeContextFromToken pAuthzInitializeContextFromToken;
 extern sAuthzAccessCheck pAuthzAccessCheck;
 extern sAuthzFreeContext pAuthzFreeContext;
 extern sAuthzFreeResourceManager pAuthzFreeResourceManager;

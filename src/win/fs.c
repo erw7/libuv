@@ -2144,8 +2144,6 @@ static void fs__sendfile(uv_fs_t* req) {
 static void fs__access(uv_fs_t* req) {
   DWORD err;
   PSECURITY_DESCRIPTOR security_descriptor = NULL;
-  PTOKEN_USER token_user = NULL;
-  DWORD sid_size = 0;
   HANDLE token_handle = INVALID_HANDLE_VALUE;
   AUTHZ_RESOURCE_MANAGER_HANDLE manager_handle = INVALID_HANDLE_VALUE;
   LUID unused_id = {};
@@ -2182,18 +2180,6 @@ static void fs__access(uv_fs_t* req) {
     goto cleanup;
   }
 
-  GetTokenInformation(token_handle, TokenUser, NULL, 0, &sid_size);
-  token_user = (PTOKEN_USER)uv__calloc(1, sid_size);
-  if (token_user == NULL) {
-    SET_REQ_WIN32_ERROR(req, GetLastError());
-    goto cleanup;
-  }
-  if (!GetTokenInformation(token_handle, TokenUser, token_user,
-                           sid_size, &sid_size)) {
-    SET_REQ_WIN32_ERROR(req, GetLastError());
-    goto cleanup;
-  }
-
   if (!pAuthzInitializeResourceManager(AUTHZ_RM_FLAG_NO_AUDIT,
                                      NULL,
                                      NULL,
@@ -2204,9 +2190,9 @@ static void fs__access(uv_fs_t* req) {
     goto cleanup;
   }
 
-  if (!pAuthzInitializeContextFromSid(0, token_user->User.Sid,
-                                      manager_handle, NULL, unused_id,
-                                      NULL, &authz_client_context_handle)) {
+  if (!pAuthzInitializeContextFromToken(0, token_handle,
+                                        manager_handle, NULL, unused_id,
+                                        NULL, &authz_client_context_handle)) {
     SET_REQ_WIN32_ERROR(req, GetLastError());
     goto cleanup;
   }
@@ -2255,7 +2241,6 @@ cleanup:
   if (token_handle != INVALID_HANDLE_VALUE) {
     CloseHandle(token_handle);
   }
-  uv__free(token_user);
   LocalFree(security_descriptor);
 }
 

@@ -47,7 +47,7 @@ sSetWinEventHook pSetWinEventHook;
 
 /* authz.dll function pointer */
 sAuthzInitializeResourceManager pAuthzInitializeResourceManager;
-sAuthzInitializeContextFromSid pAuthzInitializeContextFromSid;
+sAuthzInitializeContextFromToken pAuthzInitializeContextFromToken;
 sAuthzAccessCheck pAuthzAccessCheck;
 sAuthzFreeContext pAuthzFreeContext;
 sAuthzFreeResourceManager pAuthzFreeResourceManager;
@@ -154,9 +154,9 @@ void uv_winapi_init(void) {
     uv_fatal_error(GetLastError(), "GetProceAddress");
   }
 
-  pAuthzInitializeContextFromSid = (sAuthzInitializeContextFromSid)
-    GetProcAddress(authz_module, "AuthzInitializeContextFromSid");
-  if (pAuthzInitializeContextFromSid == NULL) {
+  pAuthzInitializeContextFromToken = (sAuthzInitializeContextFromToken)
+    GetProcAddress(authz_module, "AuthzInitializeContextFromToken");
+  if (pAuthzInitializeContextFromToken == NULL) {
     uv_fatal_error(GetLastError(), "GetProceAddress");
   }
 
