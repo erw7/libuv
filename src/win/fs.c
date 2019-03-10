@@ -2143,7 +2143,6 @@ static void fs__sendfile(uv_fs_t* req) {
 
 static void fs__access(uv_fs_t* req) {
   DWORD err;
-  PACL dacl;
   PSECURITY_DESCRIPTOR security_descriptor = NULL;
   PTOKEN_USER token_user = NULL;
   DWORD sid_size = 0;
@@ -2164,7 +2163,7 @@ static void fs__access(uv_fs_t* req) {
                               GROUP_SECURITY_INFORMATION,
                               NULL,
                               NULL,
-                              &dacl,
+                              NULL,
                               NULL,
                               &security_descriptor);
   if (err != ERROR_SUCCESS) {
