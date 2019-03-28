@@ -212,7 +212,9 @@ static void capture_screen(uv_tty_t* tty_out, struct captured_screen* cs) {
   origin.X = 0;
   origin.Y = cs->si.csbi.srWindow.Top;
   cs->text = (char*) malloc(cs->si.length * sizeof(*cs->text));
+  ASSERT(cs->text != NULL);
   cs->attributes = (WORD*) malloc(cs->si.length * sizeof(*cs->attributes));
+  ASSERT(cs->attributes != NULL);
   ASSERT(ReadConsoleOutputCharacter(
       tty_out->handle, cs->text, cs->si.length, origin, &length));
   ASSERT((unsigned int) cs->si.length == length);
