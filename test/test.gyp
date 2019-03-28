@@ -143,6 +143,7 @@
         'test-timer-from-check.c',
         'test-timer.c',
         'test-tty-duplicate-key.c',
+        'test-tty-escape-sequence-processing.c',
         'test-tty.c',
         'test-udp-alloc-cb-fail.c',
         'test-udp-bind.c',
@@ -168,7 +169,6 @@
       'conditions': [
         [ 'OS=="win"', {
           'sources': [
-            'test-tty-escape-sequence-processing.c',
             'runner-win.c',
             'runner-win.h',
             '../src/win/snprintf.c',

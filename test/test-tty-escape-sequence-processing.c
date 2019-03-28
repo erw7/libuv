@@ -19,6 +19,8 @@
  * IN THE SOFTWARE.
  */
 
+#ifdef _WIN32
+
 #include "task.h"
 #include "uv.h"
 
@@ -1607,3 +1609,9 @@ TEST_IMPL(tty_escape_sequence_processing) {
   MAKE_VALGRIND_HAPPY();
   return 0;
 }
+
+#else
+
+typedef int file_has_no_tests; /* ISO C forbids an empty translation unit. */
+
+#endif  /* ifdef _WIN32 */

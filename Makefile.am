@@ -287,6 +287,7 @@ test_run_tests_SOURCES = test/blackhole-server.c \
                          test/test-timer.c \
                          test/test-tmpdir.c \
                          test/test-tty-duplicate-key.c \
+                         test/test-tty-escape-sequence-processing.c \
                          test/test-tty.c \
                          test/test-udp-alloc-cb-fail.c \
                          test/test-udp-bind.c \
@@ -312,8 +313,7 @@ test_run_tests_SOURCES = test/blackhole-server.c \
 test_run_tests_LDADD = libuv.la
 
 if WINNT
-test_run_tests_SOURCES += test/test-tty-escape-sequence-processing.c \
-                          test/runner-win.c \
+test_run_tests_SOURCES += test/runner-win.c \
                           test/runner-win.h
 else
 test_run_tests_SOURCES += test/runner-unix.c \
