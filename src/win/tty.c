@@ -668,8 +668,7 @@ static void uv_tty_queue_read(uv_loop_t* loop, uv_tty_t* handle) {
 }
 
 
-static const char* get_vt100_fn_key(DWORD code, char shift, char ctrl,
-    size_t* len) {
+static const char* get_vt100_fn_key(DWORD code, DWORD ctrl_key_state, size_t* len) {
 #define VK_CASE(vk, normal_str, shift_str, ctrl_str, shift_ctrl_str)          \
     case (vk):                                                                \
       if (shift && ctrl) {                                                    \
@@ -685,6 +684,27 @@ static const char* get_vt100_fn_key(DWORD code, char shift, char ctrl,
         *len = (sizeof normal_str) -1;                                        \
         return normal_str;                                                    \
       }
+
+  char shift, ctrl, num_lock;
+  shift = !!(ctrl_key_state & SHIFT_PRESSED);
+  ctrl = !!(ctrl_key_state & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED));
+  num_lock = !!(ctrl_key_state & NUMLOCK_ON);
+
+  if (num_lock) {
+    switch (code) {
+      VK_CASE(VK_NUMPAD0, NULL, NULL, "0",    "0")
+      VK_CASE(VK_NUMPAD1, NULL, NULL, "1",    "1")
+      VK_CASE(VK_NUMPAD2, NULL, NULL, "\0",   "2")  /* <C-2> => ^@ */
+      VK_CASE(VK_NUMPAD3, NULL, NULL, "3",    "3")
+      VK_CASE(VK_NUMPAD4, NULL, NULL, "4",    "4")
+      VK_CASE(VK_NUMPAD5, NULL, NULL, "5",    "5")
+      VK_CASE(VK_NUMPAD6, NULL, NULL, "\x1e", "6")  /* <C-6> => ^^ */
+      VK_CASE(VK_NUMPAD7, NULL, NULL, "7",    "7")
+      VK_CASE(VK_NUMPAD8, NULL, NULL, "8",    "8")
+      VK_CASE(VK_NUMPAD9, NULL, NULL, "9",    "9")
+      VK_CASE(VK_DECIMAL, NULL, NULL, ".",    ".")
+    }
+  }
 
   switch (code) {
     /* These mappings are the same as Cygwin's. Unmodified and alt-modified
@@ -1137,12 +1157,8 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
         }
 
         /* Processing in the case of <C-Space> and <C-Tab> */
-        vt100 = get_vt100_fn_key(KEV.wVirtualKeyCode,
-                                  !!(KEV.dwControlKeyState & SHIFT_PRESSED),
-                                  !!(KEV.dwControlKeyState & (
-                                    LEFT_CTRL_PRESSED |
-                                    RIGHT_CTRL_PRESSED)),
-                                  &vt100_len);
+        vt100 = get_vt100_fn_key(KEV.wVirtualKeyCode, KEV.dwControlKeyState,
+                                 &vt100_len);
 
         if (vt100) {
           assert(prefix_len + vt100_len < sizeof handle->tty.rd.last_key);
@@ -1202,12 +1218,8 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
         const char* vt100;
         size_t prefix_len, vt100_len;
 
-        vt100 = get_vt100_fn_key(KEV.wVirtualKeyCode,
-                                  !!(KEV.dwControlKeyState & SHIFT_PRESSED),
-                                  !!(KEV.dwControlKeyState & (
-                                    LEFT_CTRL_PRESSED |
-                                    RIGHT_CTRL_PRESSED)),
-                                  &vt100_len);
+        vt100 = get_vt100_fn_key(KEV.wVirtualKeyCode, KEV.dwControlKeyState,
+                                 &vt100_len);
 
         /* If we were unable to map to a vt100 sequence, just ignore. */
         if (!vt100) {
