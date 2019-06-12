@@ -747,6 +747,7 @@ static const char* get_vt100_fn_key(DWORD code, DWORD ctrl_key_state, size_t* le
     VK_CASE(VK_F12,       "\033[24~", "\033[24$",  "\033[24^",  "\033[24@" )
     VK_CASE(VK_TAB,       NULL,       "\033[Z",    NULL,        NULL)  /* <S-Tab> => ^[[Z */
     VK_CASE(VK_SPACE,     NULL,       NULL,        "\0",        NULL)  /* <C-Space> => ^@ */
+    VK_CASE(VK_BACK,      "\x7f",     "\x7f",      "\x7f",      "\x7f")
     VK_CASE(0x30,         NULL,       NULL,        "0",         NULL)
     VK_CASE(0x31,         NULL,       NULL,        "1",         NULL)
     VK_CASE(0x32,         NULL,       NULL,        "\0",        NULL)  /* <C-2> => ^@ */
