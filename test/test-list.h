@@ -107,6 +107,7 @@ TEST_DECLARE   (tcp_write_after_connect)
 TEST_DECLARE   (tcp_writealot)
 TEST_DECLARE   (tcp_write_fail)
 TEST_DECLARE   (tcp_try_write)
+TEST_DECLARE   (tcp_try_write_error)
 TEST_DECLARE   (tcp_write_queue_order)
 TEST_DECLARE   (tcp_open)
 TEST_DECLARE   (tcp_open_twice)
@@ -341,6 +342,7 @@ TEST_DECLARE   (fs_utime)
 TEST_DECLARE   (fs_futime)
 TEST_DECLARE   (fs_file_open_append)
 TEST_DECLARE   (fs_stat_missing_path)
+TEST_DECLARE   (fs_read_bufs)
 TEST_DECLARE   (fs_read_file_eof)
 TEST_DECLARE   (fs_event_watch_dir)
 TEST_DECLARE   (fs_event_watch_dir_recursive)
@@ -614,6 +616,7 @@ TASK_LIST_START
   TEST_HELPER (tcp_write_fail, tcp4_echo_server)
 
   TEST_ENTRY  (tcp_try_write)
+  TEST_ENTRY  (tcp_try_write_error)
 
   TEST_ENTRY  (tcp_write_queue_order)
 
@@ -808,7 +811,7 @@ TASK_LIST_START
 
   TEST_ENTRY  (tmpdir)
 
-  TEST_ENTRY  (hrtime)
+  TEST_ENTRY_CUSTOM (hrtime, 0, 0, 10000)
 
   TEST_ENTRY_CUSTOM (getaddrinfo_fail, 0, 0, 10000)
   TEST_ENTRY_CUSTOM (getaddrinfo_fail_sync, 0, 0, 10000)
@@ -943,6 +946,7 @@ TASK_LIST_START
   TEST_ENTRY  (fs_non_symlink_reparse_point)
 #endif
   TEST_ENTRY  (fs_stat_missing_path)
+  TEST_ENTRY  (fs_read_bufs)
   TEST_ENTRY  (fs_read_file_eof)
   TEST_ENTRY  (fs_file_open_append)
   TEST_ENTRY  (fs_event_watch_dir)
