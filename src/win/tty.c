@@ -78,6 +78,9 @@
 #define UV_TTY_MOUSE_MODE_BT      0x08
 #define UV_TTY_MOUSE_MODE_ANY     0x10
 
+#define SRWIDTH(sr) ((sr).Right - (sr).Left + 1)
+#define SRHEIGHT(sr) ((sr).Bottom - (sr).Top + 1)
+
 static void uv_tty_capture_initial_style(
     CONSOLE_SCREEN_BUFFER_INFO* screen_buffer_info,
     CONSOLE_CURSOR_INFO* cursor_info);
@@ -187,6 +190,7 @@ typedef struct uv_tty_console_buffer_s {
 static uv_tty_console_buffer_t* uv__tty_console_buffer = NULL;
 
 void uv_console_init(void) {
+  CONSOLE_SCREEN_BUFFER_INFO sb_info;
   if (uv_sem_init(&uv_tty_output_lock, 1))
     abort();
   uv__tty_console_output_handle = CreateFileW(L"CONOUT$",
@@ -200,6 +204,10 @@ void uv_console_init(void) {
     QueueUserWorkItem(uv__tty_console_resize_message_loop_thread,
                       NULL,
                       WT_EXECUTELONGFUNCTION);
+    if (GetConsoleScreenBufferInfo(uv__tty_console_output_handle, &sb_info)) {
+      uv__tty_console_width = sb_info.dwSize.X;
+      uv__tty_console_height = SRHEIGHT(sb_info.srWindow);
+    }
   }
   uv__tty_console_input_handle = CreateFileW(L"CONIN$",
                                              GENERIC_READ | GENERIC_WRITE,
@@ -1399,10 +1407,6 @@ static int uv__cancel_read_console(uv_tty_t* handle) {
 
   return err;
 }
-
-
-#define SRWIDTH(sr) ((sr).Right - (sr).Left + 1)
-#define SRHEIGHT(sr) ((sr).Bottom - (sr).Top + 1)
 
 static void uv_tty_update_virtual_window(CONSOLE_SCREEN_BUFFER_INFO* info) {
   uv_tty_virtual_width = info->dwSize.X;
@@ -3008,16 +3012,9 @@ static void uv__determine_vterm_state(HANDLE handle) {
 }
 
 static DWORD WINAPI uv__tty_console_resize_message_loop_thread(void* param) {
-  CONSOLE_SCREEN_BUFFER_INFO sb_info;
   NTSTATUS status;
   ULONG_PTR conhost_pid;
   MSG msg;
-
-  if (!GetConsoleScreenBufferInfo(uv__tty_console_output_handle, &sb_info))
-    return 0;
-
-  uv__tty_console_width = sb_info.dwSize.X;
-  uv__tty_console_height = SRHEIGHT(sb_info.srWindow);
 
   if (pSetWinEventHook == NULL || pNtQueryInformationProcess == NULL)
     return 0;
