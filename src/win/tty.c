@@ -1078,20 +1078,22 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
         }
 
         /* Processing in the case of <C-Space> and <C-Tab> */
-        vt100 = get_vt100_fn_key(KEV.wVirtualKeyCode,
-                                  !!(KEV.dwControlKeyState & SHIFT_PRESSED),
-                                  !!(KEV.dwControlKeyState & (
-                                    LEFT_CTRL_PRESSED |
-                                    RIGHT_CTRL_PRESSED)),
-                                  &vt100_len);
+        if (KEV.wVirtualKeyCode == ' ' || KEV.wVirtualKeyCode == '\011') {
+          vt100 = get_vt100_fn_key(KEV.wVirtualKeyCode,
+              !!(KEV.dwControlKeyState & SHIFT_PRESSED),
+              !!(KEV.dwControlKeyState & (
+                  LEFT_CTRL_PRESSED |
+                  RIGHT_CTRL_PRESSED)),
+              &vt100_len);
 
-        if (vt100) {
-          assert(prefix_len + vt100_len < sizeof handle->tty.rd.last_key);
-          memcpy(&handle->tty.rd.last_key[prefix_len], vt100, vt100_len);
+          if (vt100) {
+            assert(prefix_len + vt100_len < sizeof handle->tty.rd.last_key);
+            memcpy(&handle->tty.rd.last_key[prefix_len], vt100, vt100_len);
 
-          handle->tty.rd.last_key_len = (unsigned char) (prefix_len + vt100_len);
-          handle->tty.rd.last_key_offset = 0;
-          continue;
+            handle->tty.rd.last_key_len = (unsigned char) (prefix_len + vt100_len);
+            handle->tty.rd.last_key_offset = 0;
+            continue;
+          }
         }
 
         if (KEV.uChar.UnicodeChar >= 0xDC00 &&
