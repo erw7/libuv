@@ -35,6 +35,7 @@ sNtQueryVolumeInformationFile pNtQueryVolumeInformationFile;
 sNtQueryDirectoryFile pNtQueryDirectoryFile;
 sNtQuerySystemInformation pNtQuerySystemInformation;
 sNtQueryInformationProcess pNtQueryInformationProcess;
+sGetConsoleKeyboardLayoutNameA pGetConsoleKeyboardLayoutNameA;
 
 /* Kernel32 function pointers */
 sGetQueuedCompletionStatusEx pGetQueuedCompletionStatusEx;
@@ -122,6 +123,10 @@ void uv_winapi_init(void) {
   pGetQueuedCompletionStatusEx = (sGetQueuedCompletionStatusEx) GetProcAddress(
       kernel32_module,
       "GetQueuedCompletionStatusEx");
+
+  pGetConsoleKeyboardLayoutNameA = (sGetConsoleKeyboardLayoutNameA) GetProcAddress(
+      kernel32_module,
+      "GetConsoleKeyboardLayoutNameA");
 
   powrprof_module = LoadLibraryA("powrprof.dll");
   if (powrprof_module != NULL) {

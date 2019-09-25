@@ -1144,6 +1144,17 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
         /* Function key pressed */
         const char* vt100;
         size_t prefix_len, vt100_len;
+        char buf[KL_NAMELENGTH];
+
+        /* Skip the dead key on the French keyboard. */
+        if (!!(KEV.dwControlKeyState & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED))
+            && !!(KEV.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED))
+            && (KEV.wVirtualKeyCode == 0x32 || KEV.wVirtualKeyCode == 0x37)) {
+          if (pGetConsoleKeyboardLayoutNameA(buf)
+              && buf[6] == '0' && buf[7] == 'C') {
+            continue;
+          }
+        }
 
         vt100 = get_vt100_fn_key(KEV.wVirtualKeyCode,
                                   !!(KEV.dwControlKeyState & SHIFT_PRESSED),

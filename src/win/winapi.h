@@ -4589,6 +4589,7 @@ typedef NTSTATUS (NTAPI *sNtQueryInformationProcess)
                   ULONG Length,
                   PULONG ReturnLength);
 
+typedef BOOL (NTAPI *sGetConsoleKeyboardLayoutNameA)(LPSTR Layout);
 /*
  * Kernel32 headers
  */
@@ -4733,6 +4734,7 @@ extern sNtQueryInformationProcess pNtQueryInformationProcess;
 
 /* Kernel32 function pointers */
 extern sGetQueuedCompletionStatusEx pGetQueuedCompletionStatusEx;
+extern sGetConsoleKeyboardLayoutNameA pGetConsoleKeyboardLayoutNameA;
 
 /* Powrprof.dll function pointer */
 extern sPowerRegisterSuspendResumeNotification pPowerRegisterSuspendResumeNotification;
