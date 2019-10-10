@@ -136,8 +136,19 @@ void uv_winapi_init(void) {
 
   user32_module = LoadLibraryA("user32.dll");
   if (user32_module != NULL) {
+    char buf[KL_NAMELENGTH];
     pSetWinEventHook = (sSetWinEventHook)
       GetProcAddress(user32_module, "SetWinEventHook");
+    if (!pGetConsoleKeyboardLayoutNameA(buf)) {
+      DWORD err;
+      err = GetLastError();
+      if (err == ERROR_MR_MID_NOT_FOUND || err == HRESULT_CODE(E_NOTIMPL)) {
+        pGetConsoleKeyboardLayoutNameA =
+          (sGetConsoleKeyboardLayoutNameA) GetProcAddress(
+              user32_module,
+              "GetKeyboardLayoutNameA");
+      }
+    }
   }
 
 }
