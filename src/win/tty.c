@@ -171,6 +171,7 @@ static void uv__determine_vterm_state(HANDLE handle);
 
 static int uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_NONE;
 static int uv__tty_mouse_enc = UV_TTY_MOUSE_ENC_X10;
+static DWORD dwOriginMode = 0;
 
 void uv_console_init(void) {
   if (uv_sem_init(&uv_tty_output_lock, 1))
@@ -200,6 +201,9 @@ void uv_console_init(void) {
                                              OPEN_EXISTING,
                                              0,
                                              0);
+  if(!GetConsoleMode(uv__tty_console_input_handle, &dwOriginMode)) {
+    dwOriginMode = ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT;
+  }
 }
 
 
@@ -2655,7 +2659,8 @@ void uv_process_tty_connect_req(uv_loop_t* loop, uv_tty_t* handle,
 
 
 int uv_tty_reset_mode(void) {
-  /* Not necessary to do anything. */
+  SetConsoleMode(uv__tty_console_input_handle, dwOriginMode);
+
   return 0;
 }
 
