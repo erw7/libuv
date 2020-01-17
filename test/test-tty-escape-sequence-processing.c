@@ -211,7 +211,7 @@ static void capture_screen(uv_tty_t* tty_out, struct captured_screen* cs) {
   get_screen_info(tty_out, &(cs->si));
   origin.X = 0;
   origin.Y = cs->si.csbi.srWindow.Top;
-  cs->text = (char*) malloc(cs->si.length * sizeof(*cs->text));
+  cs->text = malloc(cs->si.length * sizeof(*cs->text));
   ASSERT(cs->text != NULL);
   cs->attributes = (WORD*) malloc(cs->si.length * sizeof(*cs->attributes));
   ASSERT(cs->attributes != NULL);
@@ -228,8 +228,9 @@ static void make_expect_screen_erase(struct captured_screen* cs,
                                      int dir,
                                      BOOL entire_screen) {
   /* beginning of line */
-  char* start = cs->text + cs->si.width * (cursor_position.Y - 1);
+  char* start;
   char* end;
+  start = cs->text + cs->si.width * (cursor_position.Y - 1);
   if (dir == 0) {
     if (entire_screen) {
       /* erase to end of screen */
@@ -271,7 +272,8 @@ static void make_expect_screen_write(struct captured_screen* cs,
                                      COORD cursor_position,
                                      const char* text) {
   /* postion of cursor */
-  char* start = cs->text + cs->si.width * (cursor_position.Y - 1) +
+  char* start;
+  start = cs->text + cs->si.width * (cursor_position.Y - 1) +
                 cursor_position.X - 1;
   size_t length = strlen(text);
   size_t remain_length = cs->si.length - (cs->text - start);
@@ -283,7 +285,8 @@ static void make_expect_screen_set_attr(struct captured_screen* cs,
                                         COORD cursor_position,
                                         size_t length,
                                         WORD attr) {
-  WORD* start = cs->attributes + cs->si.width * (cursor_position.Y - 1) +
+  WORD* start;
+  start = cs->attributes + cs->si.width * (cursor_position.Y - 1) +
                 cursor_position.X - 1;
   size_t remain_length = cs->si.length - (cs->attributes - start);
   length = length > remain_length ? remain_length : length;
@@ -369,7 +372,6 @@ static void initialize_tty(uv_tty_t* tty_out) {
 static void terminate_tty(uv_tty_t* tty_out) {
   set_cursor_to_home(tty_out);
   uv_close((uv_handle_t*) tty_out, NULL);
-  FreeConsole();
 }
 
 TEST_IMPL(tty_cursor_up) {
