@@ -1942,7 +1942,8 @@ static void uv_tty_set_mouse_tracking_mode(uv_tty_t* handle,
                                            int mode,
                                            BOOL enable,
                                            DWORD* error) {
-  static DWORD dwSavedMode = 0;
+  static BOOL need_check_mode = TRUE;
+  static BOOL need_restoer = FALSE;
   DWORD dwMode;
   if (!GetConsoleMode(uv__tty_console_input_handle, &dwMode)) {
     uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_NONE;
@@ -1950,12 +1951,15 @@ static void uv_tty_set_mouse_tracking_mode(uv_tty_t* handle,
     return;
   }
 
-  if (!dwSavedMode) {
-    dwSavedMode = dwMode;
+  if (need_check_mode) {
+    if (!(dwMode & ENABLE_MOUSE_INPUT)) {
+      need_restoer = TRUE;
+    }
+    need_check_mode = FALSE;
   }
 
   if (enable) {
-    dwMode |= (ENABLE_MOUSE_INPUT | ENABLE_EXTENDED_FLAGS | ENABLE_WINDOW_INPUT);
+    dwMode |= ENABLE_MOUSE_INPUT;
     if (!SetConsoleMode(uv__tty_console_input_handle, dwMode)) {
       uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_NONE;
       *error = GetLastError();
@@ -1980,7 +1984,9 @@ static void uv_tty_set_mouse_tracking_mode(uv_tty_t* handle,
         (mode == 1000 && uv__tty_mouse_mode == UV_TTY_MOUSE_MODE_NORMAL) ||
         (mode == 1002 && uv__tty_mouse_mode == UV_TTY_MOUSE_MODE_BT) ||
         (mode == 1003 && uv__tty_mouse_mode == UV_TTY_MOUSE_MODE_ANY)) {
-      if (!SetConsoleMode(uv__tty_console_input_handle, dwSavedMode)) {
+      if (need_restoer && !GetConsoleMode(uv__tty_console_input_handle, &dwMode)
+          && !SetConsoleMode(uv__tty_console_input_handle,
+                             (dwMode & ~ENABLE_MOUSE_INPUT))) {
         *error = GetLastError();
       }
       uv__tty_mouse_mode = UV_TTY_MOUSE_MODE_NONE;
