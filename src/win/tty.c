@@ -1892,8 +1892,7 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
           if (utf8_codepoint == 'q') {
             /* Change the cursor shape */
             int style = handle->tty.wr.ansi_csi_argc
-                            ? handle->tty.wr.ansi_csi_argv[0]
-                            : 1;
+              ? handle->tty.wr.ansi_csi_argv[0] : 1;
             if (style >= 0 && style <= 6) {
               FLUSH_TEXT();
               uv_tty_set_cursor_shape(handle, style, error);
@@ -1930,8 +1929,7 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
 
           } else {
             /* We were already parsing a number. Parse next digit. */
-            uint32_t value =
-                10 *
+            uint32_t value = 10 *
                 handle->tty.wr.ansi_csi_argv[handle->tty.wr.ansi_csi_argc - 1];
 
             /* Check for overflow. */
@@ -2017,8 +2015,7 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
                 /* cursor up */
                 FLUSH_TEXT();
                 y = -(handle->tty.wr.ansi_csi_argc
-                          ? handle->tty.wr.ansi_csi_argv[0]
-                          : 1);
+                  ? handle->tty.wr.ansi_csi_argv[0] : 1);
                 uv_tty_move_caret(handle, 0, 1, y, 1, error);
                 break;
 
@@ -2026,8 +2023,7 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
                 /* cursor down */
                 FLUSH_TEXT();
                 y = handle->tty.wr.ansi_csi_argc
-                        ? handle->tty.wr.ansi_csi_argv[0]
-                        : 1;
+                  ? handle->tty.wr.ansi_csi_argv[0] : 1;
                 uv_tty_move_caret(handle, 0, 1, y, 1, error);
                 break;
 
@@ -2035,8 +2031,7 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
                 /* cursor forward */
                 FLUSH_TEXT();
                 x = handle->tty.wr.ansi_csi_argc
-                        ? handle->tty.wr.ansi_csi_argv[0]
-                        : 1;
+                  ? handle->tty.wr.ansi_csi_argv[0] : 1;
                 uv_tty_move_caret(handle, x, 1, 0, 1, error);
                 break;
 
@@ -2044,8 +2039,7 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
                 /* cursor back */
                 FLUSH_TEXT();
                 x = -(handle->tty.wr.ansi_csi_argc
-                          ? handle->tty.wr.ansi_csi_argv[0]
-                          : 1);
+                  ? handle->tty.wr.ansi_csi_argv[0] : 1);
                 uv_tty_move_caret(handle, x, 1, 0, 1, error);
                 break;
 
@@ -2053,8 +2047,7 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
                 /* cursor next line */
                 FLUSH_TEXT();
                 y = handle->tty.wr.ansi_csi_argc
-                        ? handle->tty.wr.ansi_csi_argv[0]
-                        : 1;
+                  ? handle->tty.wr.ansi_csi_argv[0] : 1;
                 uv_tty_move_caret(handle, 0, 0, y, 1, error);
                 break;
 
@@ -2062,8 +2055,7 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
                 /* cursor previous line */
                 FLUSH_TEXT();
                 y = -(handle->tty.wr.ansi_csi_argc
-                          ? handle->tty.wr.ansi_csi_argv[0]
-                          : 1);
+                  ? handle->tty.wr.ansi_csi_argv[0] : 1);
                 uv_tty_move_caret(handle, 0, 0, y, 1, error);
                 break;
 
@@ -2072,8 +2064,7 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
                 FLUSH_TEXT();
                 x = (handle->tty.wr.ansi_csi_argc >= 1 &&
                      handle->tty.wr.ansi_csi_argv[0])
-                        ? handle->tty.wr.ansi_csi_argv[0] - 1
-                        : 0;
+                  ? handle->tty.wr.ansi_csi_argv[0] - 1 : 0;
                 uv_tty_move_caret(handle, x, 0, 0, 1, error);
                 break;
 
@@ -2083,12 +2074,10 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
                 FLUSH_TEXT();
                 y = (handle->tty.wr.ansi_csi_argc >= 1 &&
                      handle->tty.wr.ansi_csi_argv[0])
-                        ? handle->tty.wr.ansi_csi_argv[0] - 1
-                        : 0;
+                  ? handle->tty.wr.ansi_csi_argv[0] - 1 : 0;
                 x = (handle->tty.wr.ansi_csi_argc >= 2 &&
                      handle->tty.wr.ansi_csi_argv[1])
-                        ? handle->tty.wr.ansi_csi_argv[1] - 1
-                        : 0;
+                  ? handle->tty.wr.ansi_csi_argv[1] - 1 : 0;
                 uv_tty_move_caret(handle, x, 0, y, 0, error);
                 break;
 
@@ -2096,8 +2085,7 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
                 /* Erase screen */
                 FLUSH_TEXT();
                 d = handle->tty.wr.ansi_csi_argc
-                        ? handle->tty.wr.ansi_csi_argv[0]
-                        : 0;
+                  ? handle->tty.wr.ansi_csi_argv[0] : 0;
                 if (d >= 0 && d <= 2) {
                   uv_tty_clear(handle, d, 1, error);
                 }
@@ -2107,8 +2095,7 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
                 /* Erase line */
                 FLUSH_TEXT();
                 d = handle->tty.wr.ansi_csi_argc
-                        ? handle->tty.wr.ansi_csi_argv[0]
-                        : 0;
+                  ? handle->tty.wr.ansi_csi_argv[0] : 0;
                 if (d >= 0 && d <= 2) {
                   uv_tty_clear(handle, d, 0, error);
                 }
