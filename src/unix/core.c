@@ -66,7 +66,8 @@ extern char** environ;
 #if defined(__DragonFly__)      || \
     defined(__FreeBSD__)        || \
     defined(__FreeBSD_kernel__) || \
-    defined(__NetBSD__)
+    defined(__NetBSD__)         || \
+    defined(__OpenBSD__)
 # include <sys/sysctl.h>
 # include <sys/filio.h>
 # include <sys/wait.h>
@@ -76,7 +77,8 @@ extern char** environ;
 # if defined(__NetBSD__)
 #  define uv__accept4(a, b, c, d) paccept((a), (b), (c), NULL, (d))
 # endif
-# if (defined(__FreeBSD__) && __FreeBSD__ >= 10) || defined(__NetBSD__)
+# if (defined(__FreeBSD__) && __FreeBSD__ >= 10) || \
+      defined(__NetBSD__) || defined(__OpenBSD__)
 #  define UV__SOCK_NONBLOCK SOCK_NONBLOCK
 #  define UV__SOCK_CLOEXEC  SOCK_CLOEXEC
 # endif
@@ -1552,4 +1554,18 @@ int uv_gettimeofday(uv_timeval64_t* tv) {
   tv->tv_sec = (int64_t) time.tv_sec;
   tv->tv_usec = (int32_t) time.tv_usec;
   return 0;
+}
+
+void uv_sleep(unsigned int msec) {
+  struct timespec timeout;
+  int rc;
+
+  timeout.tv_sec = msec / 1000;
+  timeout.tv_nsec = (msec % 1000) * 1000 * 1000;
+
+  do
+    rc = nanosleep(&timeout, &timeout);
+  while (rc == -1 && errno == EINTR);
+
+  assert(rc == 0);
 }

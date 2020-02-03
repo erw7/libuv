@@ -689,12 +689,3 @@ typedef struct {
 #define UV_FS_O_NONBLOCK     0
 #define UV_FS_O_SYMLINK      0
 #define UV_FS_O_SYNC         0x08000000 /* FILE_FLAG_WRITE_THROUGH */
-
-/* Set uv__vterm_state reggardless of console type function */
-typedef enum {
-  UV_SUPPORTED,
-  UV_UNCHECKED,
-  UV_UNSUPPORTED
-} uv_vtermstate_t;
-
-UV_EXTERN void uv_set_vterm_state(uv_vtermstate_t state);
