@@ -39,9 +39,13 @@ check_c_compiler_flag(-Wno-unused-parameter UV_LINT_NO_UNUSED_PARAMETER)
 check_c_compiler_flag(-Wstrict-prototypes UV_LINT_STRICT_PROTOTYPES)
 check_c_compiler_flag(-Wextra UV_LINT_EXTRA)
 
-if(MSVC AND MSVC_VERSION GREATER 1800)
-    add_definitions(/source-charset:utf-8)
-endif()
+string(CONCAT msvc-utf8 $<
+  $<AND:
+    $<C_COMPILER_ID:MSVC>,
+    $<VERSION_GREATER:${MSVC_VERSION},1800>
+  >:/source-charset:utf-8
+>)
+add_compile_options(${msvc-utf8})
 
 set(lint-no-unused-parameter $<$<BOOL:${UV_LINT_NO_UNUSED_PARAMETER}>:-Wno-unused-parameter>) 
 set(lint-strict-prototypes $<$<BOOL:${UV_LINT_STRICT_PROTOTYPES}>:-Wstrict-prototypes>)
