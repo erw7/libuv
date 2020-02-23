@@ -274,36 +274,36 @@ if(CYGWIN OR MSYS)
        src/unix/sysinfo-memory.c)
 endif()
 
-add_library(uv_shared SHARED ${uv_sources})
-target_compile_definitions(uv_shared
+add_library(uv SHARED ${uv_sources})
+target_compile_definitions(uv
   INTERFACE
     USING_UV_SHARED=1
   PRIVATE
     BUILDING_UV_SHARED=1
     ${uv_defines})
-target_compile_options(uv_shared PRIVATE ${uv_cflags})
-target_include_directories(uv_shared
+target_compile_options(uv PRIVATE ${uv_cflags})
+target_include_directories(uv
   PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   PRIVATE
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src>)
-target_link_libraries(uv_shared ${uv_libraries})
-set_target_properties(uv_shared PROPERTIES OUTPUT_NAME "uv")
+target_link_libraries(uv ${uv_libraries})
+set_target_properties(uv PROPERTIES OUTPUT_NAME "uv")
 
-add_library(uv_static STATIC ${uv_sources})
-target_compile_definitions(uv_static PRIVATE ${uv_defines})
-target_compile_options(uv_static PRIVATE ${uv_cflags})
-target_include_directories(uv_static
+add_library(uv_a STATIC ${uv_sources})
+target_compile_definitions(uv_a PRIVATE ${uv_defines})
+target_compile_options(uv_a PRIVATE ${uv_cflags})
+target_include_directories(uv_a
   PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   PRIVATE
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src>)
-target_link_libraries(uv_static ${uv_libraries})
-set_target_properties(uv_static PROPERTIES OUTPUT_NAME "uv")
+target_link_libraries(uv_a ${uv_libraries})
+set_target_properties(uv_a PROPERTIES OUTPUT_NAME "uv")
 if(MSVC)
-  set_target_properties(uv_static PROPERTIES PREFIX "lib")
+  set_target_properties(uv_a PROPERTIES PREFIX "lib")
 endif()
 
 if(LIBUV_BUILD_TESTS)
@@ -465,20 +465,20 @@ if(LIBUV_BUILD_TESTS)
        test/test-walk-handles.c
        test/test-watcher-cross-stop.c)
 
-  add_executable(uv_run_tests_shared ${uv_test_sources})
-  target_compile_definitions(uv_run_tests_shared
+  add_executable(uv_run_tests ${uv_test_sources})
+  target_compile_definitions(uv_run_tests
                              PRIVATE ${uv_defines} USING_UV_SHARED=1)
-  target_compile_options(uv_run_tests_shared PRIVATE ${uv_cflags})
-  target_link_libraries(uv_run_tests_shared uv_shared ${uv_test_libraries})
-  add_test(NAME uv_test_shared
-           COMMAND uv_run_tests_shared
+  target_compile_options(uv_run_tests PRIVATE ${uv_cflags})
+  target_link_libraries(uv_run_tests uv ${uv_test_libraries})
+  add_test(NAME uv_test
+           COMMAND uv_run_tests
            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-  add_executable(uv_run_tests_static ${uv_test_sources})
-  target_compile_definitions(uv_run_tests_static PRIVATE ${uv_defines})
-  target_compile_options(uv_run_tests_static PRIVATE ${uv_cflags})
-  target_link_libraries(uv_run_tests_static uv_static ${uv_test_libraries})
-  add_test(NAME uv_test_static
-           COMMAND uv_run_tests_static
+  add_executable(uv_run_tests_a ${uv_test_sources})
+  target_compile_definitions(uv_run_tests_a PRIVATE ${uv_defines})
+  target_compile_options(uv_run_tests_a PRIVATE ${uv_cflags})
+  target_link_libraries(uv_run_tests_a uv_a ${uv_test_libraries})
+  add_test(NAME uv_test_a
+           COMMAND uv_run_tests_a
            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
 
@@ -493,7 +493,7 @@ if(UNIX)
   string(REGEX MATCH "([0-9]+)[.][0-9]+[.][0-9]+" PACKAGE_VERSION "${configure_ac}")
   set(UV_VERSION_MAJOR "${CMAKE_MATCH_1}")
   # The version in the filename is mirroring the behaviour of autotools.
-  set_target_properties(uv_shared PROPERTIES
+  set_target_properties(uv PROPERTIES
     VERSION ${UV_VERSION_MAJOR}.0.0
     SOVERSION ${UV_VERSION_MAJOR})
   set(includedir ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR})
@@ -505,7 +505,7 @@ if(UNIX)
   install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR})
   install(FILES ${PROJECT_BINARY_DIR}/libuv.pc
           DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
-  install(TARGETS uv_shared uv_static
+  install(TARGETS uv uv_a
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
@@ -514,7 +514,7 @@ endif()
 if(WIN32)
   install(DIRECTORY include/ DESTINATION include)
   install(FILES LICENSE DESTINATION .)
-  install(TARGETS uv_shared uv_static
+  install(TARGETS uv uv_a
           RUNTIME DESTINATION lib/$<CONFIG>
           ARCHIVE DESTINATION lib/$<CONFIG>)
 endif()
