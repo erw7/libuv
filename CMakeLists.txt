@@ -335,7 +335,7 @@ if(APPLE OR CMAKE_SYSTEM_NAME MATCHES "DragonFly|FreeBSD|Linux|NetBSD|OpenBSD")
   list(APPEND uv_test_libraries util)
 endif()
 
-if(CMAKE_SYSTEM_NAME MATCHES "CYGWIN|MSYS")
+if(CYGWIN OR MSYS)
   list(APPEND uv_defines _GNU_SOURCE)
   list(APPEND uv_sources
        src/unix/cygwin.c
