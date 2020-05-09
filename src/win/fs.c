@@ -36,6 +36,9 @@
 #include "handle-inl.h"
 #include "fs-fd-hash-inl.h"
 
+#include <authz.h>
+#include <aclapi.h>
+
 
 #define UV_FS_FREE_PATHS         0x0002
 #define UV_FS_FREE_PTR           0x0008
@@ -460,6 +463,8 @@ void fs__open(uv_fs_t* req) {
   int flags = req->fs.info.file_flags;
   struct uv__fd_info_s fd_info;
 
+  access |= READ_CONTROL;
+
   /* Adjust flags to be compatible with the memory file mapping. Save the
    * original flags to emulate the correct behavior. */
   if (flags & UV_FS_O_FILEMAP) {
@@ -618,6 +623,7 @@ void fs__open(uv_fs_t* req) {
   /* Setting this flag makes it possible to open a directory. */
   attributes |= FILE_FLAG_BACKUP_SEMANTICS;
 
+retry:
   file = CreateFileW(req->file.pathw,
                      access,
                      share,
@@ -627,6 +633,10 @@ void fs__open(uv_fs_t* req) {
                      NULL);
   if (file == INVALID_HANDLE_VALUE) {
     DWORD error = GetLastError();
+    if (error == ERROR_ACCESS_DENIED && access & READ_CONTROL) {
+      access &= ~READ_CONTROL;
+      goto retry;
+    }
     if (error == ERROR_FILE_EXISTS && (flags & UV_FS_O_CREAT) &&
         !(flags & UV_FS_O_EXCL)) {
       /* Special case: when ERROR_FILE_EXISTS happens and UV_FS_O_CREAT was
@@ -1699,6 +1709,30 @@ INLINE static int fs__stat_handle(HANDLE handle, uv_stat_t* statbuf,
   FILE_FS_VOLUME_INFORMATION volume_info;
   NTSTATUS nt_status;
   IO_STATUS_BLOCK io_status;
+  PSID owner, group, everone;
+  PACL dacl;
+  PSECURITY_DESCRIPTOR security_descriptor;
+  DWORD sid_size;
+  wchar_t *domain_name;
+  DWORD domain_name_size;
+  SID_NAME_USE sid_type;
+  AUTHZ_RESOURCE_MANAGER_HANDLE manager_handle;
+  LUID unused_id = {};
+  AUTHZ_CLIENT_CONTEXT_HANDLE client_context_handle;
+  AUTHZ_ACCESS_REQUEST access_request = {};
+  AUTHZ_ACCESS_REPLY access_reply = {};
+  BYTE buffer[1024] = {};
+  ACCESS_MASK mask;
+  DWORD err;
+
+  owner = group = everone = NULL;
+  dacl = NULL;
+  security_descriptor = NULL;
+  domain_name = NULL;
+  domain_name_size = 0;
+  manager_handle = INVALID_HANDLE_VALUE;
+  client_context_handle = INVALID_HANDLE_VALUE;
+  err = ERROR_SUCCESS;
 
   nt_status = pNtQueryInformationFile(handle,
                                       &io_status,
@@ -1771,20 +1805,169 @@ INLINE static int fs__stat_handle(HANDLE handle, uv_stat_t* statbuf,
   }
 
   if (statbuf->st_mode == 0) {
-    if (file_info.BasicInformation.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-      statbuf->st_mode |= _S_IFDIR;
-      statbuf->st_size = 0;
-    } else {
-      statbuf->st_mode |= _S_IFREG;
-      statbuf->st_size = file_info.StandardInformation.EndOfFile.QuadPart;
+    if (ERROR_SUCCESS != GetSecurityInfo(handle,
+          SE_FILE_OBJECT,
+          DACL_SECURITY_INFORMATION  |
+          OWNER_SECURITY_INFORMATION  |
+          GROUP_SECURITY_INFORMATION,
+          &owner,
+          &group,
+          &dacl,
+          NULL,
+          &security_descriptor))
+      return -1;
+
+    if (!AuthzInitializeResourceManager(AUTHZ_RM_FLAG_NO_AUDIT,
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          &manager_handle)) {
+      err = GetLastError();
+      goto cleanup;
+    }
+
+    access_request.DesiredAccess = MAXIMUM_ALLOWED;
+    access_request.PrincipalSelfSid = NULL;
+    access_request.ObjectTypeList = NULL;
+    access_request.ObjectTypeListLength = 0;
+    access_request.OptionalArguments = NULL;
+
+    access_reply.ResultListLength = 1;
+    access_reply.GrantedAccessMask = (PACCESS_MASK)(buffer);
+    access_reply.Error = (PDWORD)(buffer + sizeof(ACCESS_MASK));
+
+    if (!AuthzInitializeContextFromSid(0, owner, manager_handle, NULL, unused_id,
+          NULL, &client_context_handle)) {
+      err = GetLastError();
+      goto cleanup;
+    }
+
+    access_request.DesiredAccess = MAXIMUM_ALLOWED;
+    access_request.PrincipalSelfSid = NULL;
+    access_request.ObjectTypeList = NULL;
+    access_request.ObjectTypeListLength = 0;
+    access_request.OptionalArguments = NULL;
+
+    access_reply.ResultListLength = 1;
+    access_reply.GrantedAccessMask = (PACCESS_MASK)(buffer);
+    access_reply.Error = (PDWORD)(buffer + sizeof(ACCESS_MASK));
+
+    if (!AuthzAccessCheck(0, client_context_handle, &access_request,
+          NULL, security_descriptor, NULL, 0, &access_reply, NULL)) {
+      err = GetLastError();
+      goto cleanup;
+    }
+
+    mask = *(PACCESS_MASK)(access_reply.GrantedAccessMask);
+    if (((mask & GENERIC_READ) == GENERIC_READ)
+        || ((mask & FILE_GENERIC_READ) == FILE_GENERIC_READ)) {
+      statbuf->st_mode |= _S_IREAD;
+    }
+    if (((mask & GENERIC_WRITE) == GENERIC_WRITE)
+        || ((mask & FILE_GENERIC_WRITE) == FILE_GENERIC_WRITE)) {
+      statbuf->st_mode |= _S_IWRITE;
+    }
+    if (((mask & GENERIC_EXECUTE) == GENERIC_EXECUTE)
+        || ((mask & FILE_GENERIC_EXECUTE) == FILE_GENERIC_EXECUTE)) {
+      statbuf->st_mode |= _S_IEXEC;
+    }
+
+    AuthzFreeContext(client_context_handle);
+    if (!AuthzInitializeContextFromSid(0, group, manager_handle, NULL, unused_id,
+          NULL, &client_context_handle)) {
+      err = GetLastError();
+      goto cleanup;
+    }
+
+    access_request.DesiredAccess = MAXIMUM_ALLOWED;
+    access_request.PrincipalSelfSid = NULL;
+    access_request.ObjectTypeList = NULL;
+    access_request.ObjectTypeListLength = 0;
+    access_request.OptionalArguments = NULL;
+
+    access_reply.ResultListLength = 1;
+    access_reply.GrantedAccessMask = (PACCESS_MASK)(buffer);
+    access_reply.Error = (PDWORD)(buffer + sizeof(ACCESS_MASK));
+
+    if (!AuthzAccessCheck(0, client_context_handle, &access_request,
+          NULL, security_descriptor, NULL, 0, &access_reply, NULL)) {
+      err = GetLastError();
+      goto cleanup;
+    }
+
+    mask = *(PACCESS_MASK)(access_reply.GrantedAccessMask);
+    if (((mask & GENERIC_READ) == GENERIC_READ)
+        || ((mask & FILE_GENERIC_READ) == FILE_GENERIC_READ)) {
+      statbuf->st_mode |= (_S_IREAD >> 3);
+    }
+    if (((mask & GENERIC_WRITE) == GENERIC_WRITE)
+        || ((mask & FILE_GENERIC_WRITE) == FILE_GENERIC_WRITE)) {
+      statbuf->st_mode |= (_S_IWRITE >> 3);
+    }
+    if (((mask & GENERIC_EXECUTE) == GENERIC_EXECUTE)
+        || ((mask & FILE_GENERIC_EXECUTE) == FILE_GENERIC_EXECUTE)) {
+      statbuf->st_mode |= (_S_IEXEC >> 3);
+    }
+
+    LookupAccountNameW(NULL, L"EveryOne", everone, &sid_size, domain_name,
+        &domain_name_size, &sid_type);
+    err = GetLastError();
+    if (err != ERROR_INSUFFICIENT_BUFFER) {
+      goto cleanup;
+    }
+    err = ERROR_SUCCESS;
+    everone = (PSID)uv__calloc(sid_size, sizeof(BYTE));
+    if (everone == NULL) {
+      uv_fatal_error(ERROR_OUTOFMEMORY, "uv__calloc");
+    }
+    domain_name = (wchar_t*)uv__calloc(domain_name_size, sizeof(*domain_name));
+    if (domain_name == NULL) {
+      uv_fatal_error(ERROR_OUTOFMEMORY, "uv__calloc");
+    }
+    if (!LookupAccountNameW(NULL, L"EveryOne", everone, &sid_size, domain_name,
+          &domain_name_size, &sid_type)) {
+      err = GetLastError();
+      goto cleanup;
+    }
+
+    AuthzFreeContext(client_context_handle);
+    if (!AuthzInitializeContextFromSid(0, everone, manager_handle, NULL, unused_id,
+          NULL, &client_context_handle)) {
+      err = GetLastError();
+      goto cleanup;
+    }
+
+    access_request.DesiredAccess = MAXIMUM_ALLOWED;
+    access_request.PrincipalSelfSid = NULL;
+    access_request.ObjectTypeList = NULL;
+    access_request.ObjectTypeListLength = 0;
+    access_request.OptionalArguments = NULL;
+
+    access_reply.ResultListLength = 1;
+    access_reply.GrantedAccessMask = (PACCESS_MASK)(buffer);
+    access_reply.Error = (PDWORD)(buffer + sizeof(ACCESS_MASK));
+
+    if (!AuthzAccessCheck(0, client_context_handle, &access_request,
+          NULL, security_descriptor, NULL, 0, &access_reply, NULL)) {
+      err = GetLastError();
+      goto cleanup;
+    }
+
+    mask = *(PACCESS_MASK)(access_reply.GrantedAccessMask);
+    if (((mask & GENERIC_READ) == GENERIC_READ)
+        || ((mask & FILE_GENERIC_READ) == FILE_GENERIC_READ)) {
+      statbuf->st_mode |= (_S_IREAD >> 6);
+    }
+    if (((mask & GENERIC_WRITE) == GENERIC_WRITE)
+        || ((mask & FILE_GENERIC_WRITE) == FILE_GENERIC_WRITE)) {
+      statbuf->st_mode |= (_S_IWRITE >> 6);
+    }
+    if (((mask & GENERIC_EXECUTE) == GENERIC_EXECUTE)
+        || ((mask & FILE_GENERIC_EXECUTE) == FILE_GENERIC_EXECUTE)) {
+      statbuf->st_mode |= (_S_IEXEC >> 6);
     }
   }
-
-  if (file_info.BasicInformation.FileAttributes & FILE_ATTRIBUTE_READONLY)
-    statbuf->st_mode |= _S_IREAD | (_S_IREAD >> 3) | (_S_IREAD >> 6);
-  else
-    statbuf->st_mode |= (_S_IREAD | _S_IWRITE) | ((_S_IREAD | _S_IWRITE) >> 3) |
-                        ((_S_IREAD | _S_IWRITE) >> 6);
 
   FILETIME_TO_TIMESPEC(statbuf->st_atim, file_info.BasicInformation.LastAccessTime);
   FILETIME_TO_TIMESPEC(statbuf->st_ctim, file_info.BasicInformation.ChangeTime);
@@ -1830,6 +2013,20 @@ INLINE static int fs__stat_handle(HANDLE handle, uv_stat_t* statbuf,
   statbuf->st_rdev = 0;
   statbuf->st_gen = 0;
 
+cleanup:
+  if (client_context_handle != INVALID_HANDLE_VALUE) {
+    AuthzFreeContext(client_context_handle);
+  }
+  if (manager_handle != INVALID_HANDLE_VALUE) {
+    AuthzFreeResourceManager(manager_handle);
+  }
+  uv__free(domain_name);
+  uv__free(everone);
+  LocalFree(security_descriptor);
+  if (err != ERROR_SUCCESS) {
+    SetLastError(err);
+    return -1;
+  }
   return 0;
 }
 
@@ -1857,7 +2054,7 @@ INLINE static DWORD fs__stat_impl_from_path(WCHAR* path,
     flags |= FILE_FLAG_OPEN_REPARSE_POINT;
 
   handle = CreateFileW(path,
-                       FILE_READ_ATTRIBUTES,
+                       FILE_READ_ATTRIBUTES | READ_CONTROL,
                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                        NULL,
                        OPEN_EXISTING,

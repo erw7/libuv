@@ -103,7 +103,8 @@ if(WIN32)
        psapi
        iphlpapi
        userenv
-       ws2_32)
+       ws2_32
+       authz)
   list(APPEND uv_sources
        src/win/async.c
        src/win/core.c
