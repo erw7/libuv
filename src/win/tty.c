@@ -821,6 +821,7 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
   /* Shortcut for handle->tty.rd.last_input_record.Event.KeyEvent. */
 #define KEV handle->tty.rd.last_input_record.Event.KeyEvent
 #define MEV handle->tty.rd.last_input_record.Event.MouseEvent
+#define FEV handle->tty.rd.last_input_record.Event.FocusEvent
 
   DWORD records_left, records_read;
   uv_buf_t buf;
@@ -889,8 +890,16 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
 
       /* Ignore other events that are not key or mouse events. */
       if (handle->tty.rd.last_input_record.EventType != KEY_EVENT &&
-          handle->tty.rd.last_input_record.EventType != MOUSE_EVENT) {
+          handle->tty.rd.last_input_record.EventType != MOUSE_EVENT &&
+          handle->tty.rd.last_input_record.EventType != FOCUS_EVENT) {
         continue;
+      }
+
+      if (handle->tty.rd.last_input_record.EventType == FOCUS_EVENT) {
+        snprintf(handle->tty.rd.last_key, 32, "\033[%s",
+            FEV.bSetFocus ? "I" : "O");
+        handle->tty.rd.last_key_len = strnlen(handle->tty.rd.last_key, 32);
+        handle->tty.rd.last_key_offset = 0;
       }
 
       /* See https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h2-Mouse-Tracking */
@@ -1301,6 +1310,7 @@ void uv_process_tty_read_raw_req(uv_loop_t* loop, uv_tty_t* handle,
 
   DECREASE_PENDING_REQ_COUNT(handle);
 
+#undef FEV
 #undef MEV
 #undef KEV
 }
