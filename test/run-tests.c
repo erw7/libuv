@@ -59,9 +59,7 @@ int main(int argc, char **argv) {
   }
 #endif
 
-  if (platform_init(argc, argv))
-    return EXIT_FAILURE;
-
+  platform_init(argc, argv);
   argv = uv_setup_args(argc, argv);
 
   switch (argc) {
@@ -211,7 +209,11 @@ static int maybe_run_test(int argc, char **argv) {
     notify_parent_process();
     ASSERT(sizeof(fd) == read(0, &fd, sizeof(fd)));
     ASSERT(fd > 2);
+# if defined(__PASE__)  /* On IBMi PASE, write() returns 1 */
+    ASSERT(1 == write(fd, "x", 1));
+# else
     ASSERT(-1 == write(fd, "x", 1));
+# endif  /* !__PASE__ */
 
     return 1;
   }

@@ -71,7 +71,7 @@ extern char** environ;
 # include <sys/sysctl.h>
 # include <sys/filio.h>
 # include <sys/wait.h>
-# if defined(__FreeBSD__) || defined(__linux__)
+# if defined(__FreeBSD__)
 #  define uv__accept4 accept4
 # endif
 # if defined(__NetBSD__)
@@ -79,16 +79,13 @@ extern char** environ;
 # endif
 #endif
 
-#if defined(__ANDROID_API__) && __ANDROID_API__ < 21
-# include <dlfcn.h>  /* for dlsym */
-#endif
-
 #if defined(__MVS__)
 #include <sys/ioctl.h>
 #endif
 
 #if defined(__linux__)
-#include <sys/syscall.h>
+# include <sys/syscall.h>
+# define uv__accept4 accept4
 #endif
 
 static int uv__run_pending(uv_loop_t* loop);
@@ -171,9 +168,7 @@ void uv_close(uv_handle_t* handle, uv_close_cb close_cb) {
 
   case UV_SIGNAL:
     uv__signal_close((uv_signal_t*) handle);
-    /* Signal handles may not be closed immediately. The signal code will
-     * itself close uv__make_close_pending whenever appropriate. */
-    return;
+    break;
 
   default:
     assert(0);
@@ -221,15 +216,23 @@ int uv__getiovmax(void) {
 #if defined(IOV_MAX)
   return IOV_MAX;
 #elif defined(_SC_IOV_MAX)
-  static int iovmax = -1;
-  if (iovmax == -1) {
-    iovmax = sysconf(_SC_IOV_MAX);
-    /* On some embedded devices (arm-linux-uclibc based ip camera),
-     * sysconf(_SC_IOV_MAX) can not get the correct value. The return
-     * value is -1 and the errno is EINPROGRESS. Degrade the value to 1.
-     */
-    if (iovmax == -1) iovmax = 1;
-  }
+  static int iovmax_cached = -1;
+  int iovmax;
+
+  iovmax = uv__load_relaxed(&iovmax_cached);
+  if (iovmax != -1)
+    return iovmax;
+
+  /* On some embedded devices (arm-linux-uclibc based ip camera),
+   * sysconf(_SC_IOV_MAX) can not get the correct value. The return
+   * value is -1 and the errno is EINPROGRESS. Degrade the value to 1.
+   */
+  iovmax = sysconf(_SC_IOV_MAX);
+  if (iovmax == -1)
+    iovmax = 1;
+
+  uv__store_relaxed(&iovmax_cached, iovmax);
+
   return iovmax;
 #else
   return 1024;
@@ -238,6 +241,8 @@ int uv__getiovmax(void) {
 
 
 static void uv__finish_close(uv_handle_t* handle) {
+  uv_signal_t* sh;
+
   /* Note: while the handle is in the UV_HANDLE_CLOSING state now, it's still
    * possible for it to be active in the sense that uv__is_active() returns
    * true.
@@ -260,7 +265,20 @@ static void uv__finish_close(uv_handle_t* handle) {
     case UV_FS_EVENT:
     case UV_FS_POLL:
     case UV_POLL:
+      break;
+
     case UV_SIGNAL:
+      /* If there are any caught signals "trapped" in the signal pipe,
+       * we can't call the close callback yet. Reinserting the handle
+       * into the closing queue makes the event loop spin but that's
+       * okay because we only need to deliver the pending events.
+       */
+      sh = (uv_signal_t*) handle;
+      if (sh->caught_signals > sh->dispatched_signals) {
+        handle->flags ^= UV_HANDLE_CLOSED;
+        uv__make_close_pending(handle);  /* Back into the queue. */
+        return;
+      }
       break;
 
     case UV_NAMED_PIPE:
@@ -505,7 +523,7 @@ int uv__close_nocancel(int fd) {
 #if defined(__APPLE__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdollar-in-identifier-extension"
-#if defined(__LP64__) || defined(TARGET_OS_IPHONE)
+#if defined(__LP64__) || TARGET_OS_IPHONE
   extern int close$NOCANCEL(int);
   return close$NOCANCEL(fd);
 #else
@@ -648,7 +666,7 @@ ssize_t uv__recvmsg(int fd, struct msghdr* msg, int flags) {
   int* end;
 #if defined(__linux__)
   static int no_msg_cmsg_cloexec;
-  if (no_msg_cmsg_cloexec == 0) {
+  if (0 == uv__load_relaxed(&no_msg_cmsg_cloexec)) {
     rc = recvmsg(fd, msg, flags | 0x40000000);  /* MSG_CMSG_CLOEXEC */
     if (rc != -1)
       return rc;
@@ -657,7 +675,7 @@ ssize_t uv__recvmsg(int fd, struct msghdr* msg, int flags) {
     rc = recvmsg(fd, msg, flags);
     if (rc == -1)
       return UV__ERR(errno);
-    no_msg_cmsg_cloexec = 1;
+    uv__store_relaxed(&no_msg_cmsg_cloexec, 1);
   } else {
     rc = recvmsg(fd, msg, flags);
   }
@@ -821,8 +839,8 @@ static void maybe_resize(uv_loop_t* loop, unsigned int len) {
   }
 
   nwatchers = next_power_of_two(len + 2) - 2;
-  watchers = uv__realloc(loop->watchers,
-                         (nwatchers + 2) * sizeof(loop->watchers[0]));
+  watchers = uv__reallocf(loop->watchers,
+                          (nwatchers + 2) * sizeof(loop->watchers[0]));
 
   if (watchers == NULL)
     abort();
@@ -1128,13 +1146,6 @@ int uv__getpwuid_r(uv_passwd_t* pwd) {
   size_t shell_size;
   long initsize;
   int r;
-#if defined(__ANDROID_API__) && __ANDROID_API__ < 21
-  int (*getpwuid_r)(uid_t, struct passwd*, char*, size_t, struct passwd**);
-
-  getpwuid_r = dlsym(RTLD_DEFAULT, "getpwuid_r");
-  if (getpwuid_r == NULL)
-    return UV_ENOSYS;
-#endif
 
   if (pwd == NULL)
     return UV_EINVAL;
@@ -1244,7 +1255,7 @@ int uv_os_environ(uv_env_item_t** envitems, int* count) {
 
   *envitems = uv__calloc(i, sizeof(**envitems));
 
-  if (envitems == NULL)
+  if (*envitems == NULL)
     return UV_ENOMEM;
 
   for (j = 0, cnt = 0; j < i; j++) {

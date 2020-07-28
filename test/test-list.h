@@ -56,10 +56,27 @@ TEST_DECLARE   (tty_raw_cancel)
 TEST_DECLARE   (tty_duplicate_vt100_fn_key)
 TEST_DECLARE   (tty_duplicate_alt_modifier_key)
 TEST_DECLARE   (tty_composing_character)
+TEST_DECLARE   (tty_cursor_up)
+TEST_DECLARE   (tty_cursor_down)
+TEST_DECLARE   (tty_cursor_forward)
+TEST_DECLARE   (tty_cursor_back)
+TEST_DECLARE   (tty_cursor_next_line)
+TEST_DECLARE   (tty_cursor_previous_line)
+TEST_DECLARE   (tty_cursor_horizontal_move_absolute)
+TEST_DECLARE   (tty_cursor_move_absolute)
+TEST_DECLARE   (tty_hide_show_cursor)
+TEST_DECLARE   (tty_set_cursor_shape)
+TEST_DECLARE   (tty_erase)
+TEST_DECLARE   (tty_erase_line)
+TEST_DECLARE   (tty_set_style)
+TEST_DECLARE   (tty_save_restore_cursor_position)
+TEST_DECLARE   (tty_full_reset)
+TEST_DECLARE   (tty_escape_sequence_processing)
 #endif
 TEST_DECLARE   (tty_file)
 TEST_DECLARE   (tty_pty)
 TEST_DECLARE   (stdio_over_pipes)
+TEST_DECLARE   (stdio_emulate_iocp)
 TEST_DECLARE   (ip6_pton)
 TEST_DECLARE   (connect_unspecified)
 TEST_DECLARE   (ipc_heavy_traffic_deadlock_bug)
@@ -163,6 +180,7 @@ TEST_DECLARE   (udp_open_connect)
 #ifndef _WIN32
 TEST_DECLARE   (udp_send_unix)
 #endif
+TEST_DECLARE   (udp_sendmmsg_error)
 TEST_DECLARE   (udp_try_send)
 TEST_DECLARE   (pipe_bind_error_addrinuse)
 TEST_DECLARE   (pipe_bind_error_addrnotavail)
@@ -329,6 +347,7 @@ TEST_DECLARE   (fs_symlink_dir)
 #ifdef _WIN32
 TEST_DECLARE   (fs_symlink_junction)
 TEST_DECLARE   (fs_non_symlink_reparse_point)
+TEST_DECLARE   (fs_lstat_windows_store_apps)
 TEST_DECLARE   (fs_open_flags)
 #endif
 #if defined(_WIN32) && !defined(USING_UV_SHARED)
@@ -336,6 +355,7 @@ TEST_DECLARE   (fs_fd_hash)
 #endif
 TEST_DECLARE   (fs_utime)
 TEST_DECLARE   (fs_futime)
+TEST_DECLARE   (fs_lutime)
 TEST_DECLARE   (fs_file_open_append)
 TEST_DECLARE   (fs_statfs)
 TEST_DECLARE   (fs_stat_missing_path)
@@ -391,6 +411,7 @@ TEST_DECLARE   (fs_open_readonly_acl)
 TEST_DECLARE   (fs_fchmod_archive_readonly)
 TEST_DECLARE   (fs_invalid_mkdir_name)
 #endif
+TEST_DECLARE   (fs_get_system_error)
 TEST_DECLARE   (strscpy)
 TEST_DECLARE   (threadpool_queue_work_simple)
 TEST_DECLARE   (threadpool_queue_work_einval)
@@ -454,6 +475,7 @@ TEST_DECLARE   (we_get_signal_one_shot)
 TEST_DECLARE   (we_get_signals_mixed)
 TEST_DECLARE   (signal_multiple_loops)
 TEST_DECLARE   (signal_pending_on_close)
+TEST_DECLARE   (signal_close_loop_alive)
 TEST_DECLARE   (closed_fd_events)
 #endif
 #ifdef __APPLE__
@@ -473,6 +495,10 @@ TEST_DECLARE   (random_sync)
 TEST_DECLARE   (handle_type_name)
 TEST_DECLARE   (req_type_name)
 TEST_DECLARE   (getters_setters)
+
+TEST_DECLARE   (not_writable_after_shutdown)
+TEST_DECLARE   (not_readable_nor_writable_on_read_error)
+TEST_DECLARE   (not_readable_on_eof)
 
 #ifndef _WIN32
 TEST_DECLARE  (fork_timer)
@@ -546,10 +572,27 @@ TASK_LIST_START
   TEST_ENTRY  (tty_duplicate_vt100_fn_key)
   TEST_ENTRY  (tty_duplicate_alt_modifier_key)
   TEST_ENTRY  (tty_composing_character)
+  TEST_ENTRY  (tty_cursor_up)
+  TEST_ENTRY  (tty_cursor_down)
+  TEST_ENTRY  (tty_cursor_forward)
+  TEST_ENTRY  (tty_cursor_back)
+  TEST_ENTRY  (tty_cursor_next_line)
+  TEST_ENTRY  (tty_cursor_previous_line)
+  TEST_ENTRY  (tty_cursor_horizontal_move_absolute)
+  TEST_ENTRY  (tty_cursor_move_absolute)
+  TEST_ENTRY  (tty_hide_show_cursor)
+  TEST_ENTRY  (tty_set_cursor_shape)
+  TEST_ENTRY  (tty_erase)
+  TEST_ENTRY  (tty_erase_line)
+  TEST_ENTRY  (tty_set_style)
+  TEST_ENTRY  (tty_save_restore_cursor_position)
+  TEST_ENTRY  (tty_full_reset)
+  TEST_ENTRY  (tty_escape_sequence_processing)
 #endif
   TEST_ENTRY  (tty_file)
   TEST_ENTRY  (tty_pty)
   TEST_ENTRY  (stdio_over_pipes)
+  TEST_ENTRY  (stdio_emulate_iocp)
   TEST_ENTRY  (ip6_pton)
   TEST_ENTRY  (connect_unspecified)
   TEST_ENTRY  (ipc_heavy_traffic_deadlock_bug)
@@ -682,14 +725,13 @@ TASK_LIST_START
   TEST_ENTRY  (udp_multicast_join)
   TEST_ENTRY  (udp_multicast_join6)
   TEST_ENTRY  (udp_multicast_ttl)
+  TEST_ENTRY  (udp_sendmmsg_error)
   TEST_ENTRY  (udp_try_send)
 
   TEST_ENTRY  (udp_open)
-  TEST_HELPER (udp_open, udp4_echo_server)
   TEST_ENTRY  (udp_open_twice)
   TEST_ENTRY  (udp_open_bound)
   TEST_ENTRY  (udp_open_connect)
-  TEST_HELPER (udp_open_connect, udp4_echo_server)
 #ifndef _WIN32
   TEST_ENTRY  (udp_send_unix)
 #endif
@@ -905,6 +947,7 @@ TASK_LIST_START
   TEST_ENTRY  (we_get_signals_mixed)
   TEST_ENTRY  (signal_multiple_loops)
   TEST_ENTRY  (signal_pending_on_close)
+  TEST_ENTRY  (signal_close_loop_alive)
   TEST_ENTRY  (closed_fd_events)
 #endif
 
@@ -935,6 +978,7 @@ TASK_LIST_START
   TEST_ENTRY  (fs_chown)
   TEST_ENTRY  (fs_utime)
   TEST_ENTRY  (fs_futime)
+  TEST_ENTRY  (fs_lutime)
   TEST_ENTRY  (fs_readlink)
   TEST_ENTRY  (fs_realpath)
   TEST_ENTRY  (fs_symlink)
@@ -942,6 +986,7 @@ TASK_LIST_START
 #ifdef _WIN32
   TEST_ENTRY  (fs_symlink_junction)
   TEST_ENTRY  (fs_non_symlink_reparse_point)
+  TEST_ENTRY  (fs_lstat_windows_store_apps)
   TEST_ENTRY  (fs_open_flags)
 #endif
 #if defined(_WIN32) && !defined(USING_UV_SHARED)
@@ -971,7 +1016,7 @@ TASK_LIST_START
   TEST_ENTRY  (fs_event_close_with_pending_event)
   TEST_ENTRY  (fs_event_close_in_callback)
   TEST_ENTRY  (fs_event_start_and_close)
-  TEST_ENTRY  (fs_event_error_reporting)
+  TEST_ENTRY_CUSTOM (fs_event_error_reporting, 0, 0, 60000)
   TEST_ENTRY  (fs_event_getpath)
   TEST_ENTRY  (fs_scandir_empty_dir)
   TEST_ENTRY  (fs_scandir_non_existent_dir)
@@ -1000,6 +1045,7 @@ TASK_LIST_START
   TEST_ENTRY  (fs_fchmod_archive_readonly)
   TEST_ENTRY  (fs_invalid_mkdir_name)
 #endif
+  TEST_ENTRY  (fs_get_system_error)
   TEST_ENTRY  (get_osfhandle_valid_handle)
   TEST_ENTRY  (open_osfhandle_valid_handle)
   TEST_ENTRY  (strscpy)
@@ -1057,6 +1103,13 @@ TASK_LIST_START
 #ifndef __MVS__
   TEST_ENTRY  (idna_toascii)
 #endif
+
+  TEST_ENTRY    (not_writable_after_shutdown)
+  TEST_HELPER   (not_writable_after_shutdown, tcp4_echo_server)
+  TEST_ENTRY    (not_readable_nor_writable_on_read_error)
+  TEST_HELPER   (not_readable_nor_writable_on_read_error, tcp4_echo_server)
+  TEST_ENTRY    (not_readable_on_eof)
+  TEST_HELPER   (not_readable_on_eof, tcp4_echo_server)
 
 #if 0
   /* These are for testing the test runner. */
