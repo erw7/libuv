@@ -60,7 +60,7 @@ string(CONCAT msvc-utf8 $<
   $<AND:
     $<C_COMPILER_ID:MSVC>,
     $<VERSION_GREATER:${MSVC_VERSION},1800>
-  >:/source-charset:utf-8
+  >:/utf-8
 >)
 add_compile_options(${msvc-utf8})
 
